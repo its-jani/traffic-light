@@ -1,14 +1,12 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
-use crossbeam_channel::{Receiver, Sender};
+use crossbeam_channel::Receiver;
 use eframe::egui::{self, Color32, Pos2, Rounding, Stroke, Vec2};
 
 use crate::types::{IpcCommand, LightState, SessionInfo, WidgetOrientation};
 
 pub struct TrafficLightApp {
     rx: Receiver<IpcCommand>,
-    #[allow(dead_code)]
-    tx: Sender<IpcCommand>,
     sessions: HashMap<String, SessionInfo>,
     session_order: Vec<String>,
     orientation: WidgetOrientation,
@@ -18,7 +16,7 @@ pub struct TrafficLightApp {
 }
 
 impl TrafficLightApp {
-    pub fn new(_cc: &eframe::CreationContext<'_>, rx: Receiver<IpcCommand>, tx: Sender<IpcCommand>) -> Self {
+    pub fn new(_cc: &eframe::CreationContext<'_>, rx: Receiver<IpcCommand>) -> Self {
         // Start with an initial standby demo session so the widget is immediately visible
         let mut sessions = HashMap::new();
         let default_id = "agent-1".to_string();
@@ -29,7 +27,6 @@ impl TrafficLightApp {
 
         Self {
             rx,
-            tx,
             sessions,
             session_order: vec![default_id],
             orientation: WidgetOrientation::Horizontal,
@@ -61,7 +58,9 @@ impl TrafficLightApp {
                         let mut session = SessionInfo::new(session_id.clone(), label, Some(state));
                         session.message = message;
                         self.sessions.insert(session_id.clone(), session);
-                        self.session_order.push(session_id);
+                        if !self.session_order.contains(&session_id) {
+                            self.session_order.push(session_id);
+                        }
                     }
                 }
                 IpcCommand::SessionOn {
@@ -80,7 +79,9 @@ impl TrafficLightApp {
                     } else {
                         let session = SessionInfo::new(session_id.clone(), label, initial_state);
                         self.sessions.insert(session_id.clone(), session);
-                        self.session_order.push(session_id);
+                        if !self.session_order.contains(&session_id) {
+                            self.session_order.push(session_id);
+                        }
                     }
                 }
                 IpcCommand::SessionOff { session_id } => {

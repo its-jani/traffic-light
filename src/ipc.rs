@@ -251,22 +251,35 @@ fn parse_query_string(qs: &str) -> HashMap<String, String> {
 }
 
 fn url_decode(s: &str) -> String {
-    let mut result = String::with_capacity(s.len());
-    let mut chars = s.chars();
+    let mut bytes = Vec::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
     while let Some(ch) = chars.next() {
         if ch == '%' {
-            let hex: String = chars.by_ref().take(2).collect();
-            if let Ok(byte) = u8::from_str_radix(&hex, 16) {
-                result.push(byte as char);
-            } else {
-                result.push('%');
-                result.push_str(&hex);
+            let mut hex = String::with_capacity(2);
+            if let Some(&c1) = chars.peek() {
+                if c1.is_ascii_hexdigit() {
+                    hex.push(chars.next().unwrap());
+                    if let Some(&c2) = chars.peek() {
+                        if c2.is_ascii_hexdigit() {
+                            hex.push(chars.next().unwrap());
+                        }
+                    }
+                }
             }
+            if hex.len() == 2 {
+                if let Ok(byte) = u8::from_str_radix(&hex, 16) {
+                    bytes.push(byte);
+                    continue;
+                }
+            }
+            bytes.push(b'%');
+            bytes.extend_from_slice(hex.as_bytes());
         } else if ch == '+' {
-            result.push(' ');
+            bytes.push(b' ');
         } else {
-            result.push(ch);
+            let mut buf = [0u8; 4];
+            bytes.extend_from_slice(ch.encode_utf8(&mut buf).as_bytes());
         }
     }
-    result
+    String::from_utf8_lossy(&bytes).to_string()
 }

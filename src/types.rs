@@ -13,10 +13,10 @@ pub enum LightState {
 impl LightState {
     pub fn parse_str(s: &str) -> Option<Self> {
         match s.to_lowercase().trim() {
-            "green" | "idle" | "ready" | "done" | "success" | "ok" => Some(Self::Green),
-            "yellow" | "working" | "thinking" | "generating" | "busy" | "running" => Some(Self::Yellow),
-            "red" | "error" | "halted" | "needs_input" | "input" | "blocked" | "failed" => Some(Self::Red),
-            "off" | "dim" => Some(Self::Off),
+            "green" | "idle" | "ready" | "done" | "success" | "ok" | "pass" | "completed" => Some(Self::Green),
+            "yellow" | "working" | "thinking" | "generating" | "busy" | "running" | "in_progress" | "warn" | "warning" => Some(Self::Yellow),
+            "red" | "error" | "halted" | "needs_input" | "input" | "blocked" | "failed" | "fail" | "stop" | "waiting" | "review" => Some(Self::Red),
+            "off" | "dim" | "standby" | "inactive" => Some(Self::Off),
             _ => None,
         }
     }
@@ -43,10 +43,11 @@ pub struct SessionInfo {
 impl SessionInfo {
     pub fn new(id: String, label: Option<String>, initial_state: Option<LightState>) -> Self {
         let display_label = label.unwrap_or_else(|| {
-            if id.starts_with("session-") || id.len() <= 12 {
+            if id.starts_with("session-") || id.chars().count() <= 12 {
                 id.clone()
             } else {
-                format!("Agent {}", &id[..std::cmp::min(8, id.len())])
+                let short_id: String = id.chars().take(8).collect();
+                format!("Agent {short_id}")
             }
         });
         Self {

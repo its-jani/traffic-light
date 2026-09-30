@@ -46,6 +46,6 @@ fn main() -> eframe::Result<()> {
     eframe::run_native(
         "Traffic Light",
         native_options,
-        Box::new(|cc| Ok(Box::new(TrafficLightApp::new(cc, rx, tx)))),
+        Box::new(|cc| Ok(Box::new(TrafficLightApp::new(cc, rx)))),
     )
 }
