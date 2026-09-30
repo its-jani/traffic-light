@@ -1,0 +1,15 @@
+[package]
+name = "traffic-light"
+version = "0.1.0"
+edition = "2021"
+authors = ["Traffic Light Team"]
+description = "Lightweight, non-Electron floating desktop traffic light for AI coding agents"
+
+[dependencies]
+eframe = { version = "0.29.1", default-features = false, features = ["default_fonts", "glow"] }
+egui = "0.29.1"
+tokio = { version = "1.41", features = ["rt-multi-thread", "net", "io-util", "sync", "macros", "time"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+crossbeam-channel = "0.5"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
