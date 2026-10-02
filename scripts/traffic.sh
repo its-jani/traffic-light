@@ -140,5 +140,8 @@ traffic() {
     esac
 }
 
-# Support slash prefix: /traffic
+# Support slash prefixes: /traffic and /dr
 alias "/traffic"=traffic
+alias "dr"=traffic
+alias "/dr"=traffic
+

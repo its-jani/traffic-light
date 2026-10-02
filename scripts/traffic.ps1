@@ -1,101 +1,101 @@
-# ==============================================================================
-# Traffic Light PowerShell Integration Module
-# ==============================================================================
+<#
+.SYNOPSIS
+    Traffic Light CLI integration for PowerShell (OpenCode / Claude Code / Windows Terminal).
+#>
 
-$script:TrafficHost = if ($env:TRAFFIC_LIGHT_HOST) { $env:TRAFFIC_LIGHT_HOST } else { "127.0.0.1" }
-$script:TrafficPort = if ($env:TRAFFIC_LIGHT_PORT) { $env:TRAFFIC_LIGHT_PORT } else { "8765" }
-$script:TrafficBaseUrl = "http://$($script:TrafficHost):$($script:TrafficPort)"
+$global:TrafficPort = 8765
+$global:TrafficHost = "127.0.0.1"
+$global:TrafficSessionId = if ($env:TRAFFIC_SESSION_ID) { $env:TRAFFIC_SESSION_ID } else { "session-$PID" }
 
-if (-not $env:TRAFFIC_SESSION_ID) {
-    $env:TRAFFIC_SESSION_ID = "ps-$PID-$([guid]::NewGuid().ToString().Substring(0,4))"
-}
-
-function Send-TrafficLight {
+function Send-TrafficCommand {
     param(
-        [Parameter(Mandatory=$true)] [string]$Endpoint,
-        [Parameter(Mandatory=$true)] [hashtable]$Payload
+        [string]$Endpoint,
+        [hashtable]$Body
     )
-    $json = $Payload | ConvertTo-Json -Compress
+    $url = "http://${global:TrafficHost}:${global:TrafficPort}$Endpoint"
     try {
-        Invoke-RestMethod -Uri "$($script:TrafficBaseUrl)$Endpoint" `
-            -Method Post `
-            -ContentType "application/json" `
-            -Body $json `
-            -TimeoutSec 1 `
-            -ErrorAction SilentlyContinue | Out-Null
+        $json = $Body | ConvertTo-Json -Compress
+        Invoke-RestMethod -Uri $url -Method Post -Body $json -ContentType "application/json" -TimeoutSec 1 | Out-Null
     } catch {
-        # Silent ignore if daemon is not running
+        # Silently fail if traffic-light is not running
     }
-}
-
-function Set-TrafficOn {
-    param(
-        [string]$SessionId = $env:TRAFFIC_SESSION_ID,
-        [string]$Label = "PS Session ($PID)"
-    )
-    Send-TrafficLight -Endpoint "/session/on" -Payload @{
-        session_id = $SessionId
-        label = $Label
-        state = "green"
-    }
-    Write-Host "[Traffic Light] Session '$SessionId' registered ($Label)." -ForegroundColor Green
-}
-
-function Set-TrafficOff {
-    param(
-        [string]$SessionId = $env:TRAFFIC_SESSION_ID
-    )
-    Send-TrafficLight -Endpoint "/session/off" -Payload @{
-        session_id = $SessionId
-    }
-    Write-Host "[Traffic Light] Session '$SessionId' dismissed." -ForegroundColor DarkGray
-}
-
-function Set-TrafficState {
-    param(
-        [Parameter(Mandatory=$true)] [string]$State,
-        [string]$Message = "",
-        [string]$SessionId = $env:TRAFFIC_SESSION_ID
-    )
-    $payload = @{
-        session_id = $SessionId
-        state = $State
-    }
-    if ($Message) {
-        $payload["message"] = $Message
-    }
-    Send-TrafficLight -Endpoint "/state" -Payload $payload
 }
 
 function traffic {
     param(
-        [string]$Action = "help",
-        [string]$Arg1 = "",
-        [string]$Arg2 = ""
+        [Parameter(Position=0)]
+        [string]$Action = "green",
+        [Parameter(Position=1)]
+        [string]$Message = "",
+        [Parameter(Position=2)]
+        [string]$SessionId = $global:TrafficSessionId
     )
 
     switch ($Action.ToLower()) {
-        "on" { Set-TrafficOn -SessionId (if ($Arg1) { $Arg1 } else { $env:TRAFFIC_SESSION_ID }) -Label (if ($Arg2) { $Arg2 } else { "PowerShell ($PID)" }) }
-        "off" { Set-TrafficOff -SessionId (if ($Arg1) { $Arg1 } else { $env:TRAFFIC_SESSION_ID }) }
-        "yellow" { Set-TrafficState -State "yellow" -Message (if ($Arg1) { $Arg1 } else { "Working / Generating..." }) }
-        "thinking" { Set-TrafficState -State "yellow" -Message (if ($Arg1) { $Arg1 } else { "Thinking..." }) }
-        "working" { Set-TrafficState -State "yellow" -Message (if ($Arg1) { $Arg1 } else { "Working..." }) }
-        "green" { Set-TrafficState -State "green" -Message (if ($Arg1) { $Arg1 } else { "Ready for next prompt" }) }
-        "idle" { Set-TrafficState -State "green" -Message (if ($Arg1) { $Arg1 } else { "Idle" }) }
-        "done" { Set-TrafficState -State "green" -Message (if ($Arg1) { $Arg1 } else { "Completed" }) }
-        "red" { Set-TrafficState -State "red" -Message (if ($Arg1) { $Arg1 } else { "Needs user input / Halted" }) }
-        "input" { Set-TrafficState -State "red" -Message (if ($Arg1) { $Arg1 } else { "Waiting for user input" }) }
-        "error" { Set-TrafficState -State "red" -Message (if ($Arg1) { $Arg1 } else { "Error / Halted" }) }
-        "clear" { Send-TrafficLight -Endpoint "/clear" -Payload @{} }
+        "on" {
+            Send-TrafficCommand -Endpoint "/session/on" -Body @{
+                session_id = $SessionId
+                label = if ($Message) { $Message } else { "Agent ($PID)" }
+                state = "green"
+            }
+            Write-Host "[Traffic Light] Session '$SessionId' ON (Green)" -ForegroundColor Green
+        }
+        "off" {
+            Send-TrafficCommand -Endpoint "/session/off" -Body @{
+                session_id = $SessionId
+            }
+            Write-Host "[Traffic Light] Session '$SessionId' OFF" -ForegroundColor DarkGray
+        }
+        "yellow" {
+            $msg = if ($Message) { $Message } else { "Thinking / Generating..." }
+            Send-TrafficCommand -Endpoint "/state" -Body @{
+                session_id = $SessionId
+                state = "yellow"
+                message = $msg
+            }
+        }
+        "green" {
+            $msg = if ($Message) { $Message } else { "Ready / Done" }
+            Send-TrafficCommand -Endpoint "/state" -Body @{
+                session_id = $SessionId
+                state = "green"
+                message = $msg
+            }
+        }
+        "red" {
+            $msg = if ($Message) { $Message } else { "Needs user input / Halted" }
+            Send-TrafficCommand -Endpoint "/state" -Body @{
+                session_id = $SessionId
+                state = "red"
+                message = $msg
+            }
+        }
+        "wrap" -or "run" {
+            if ($Message) {
+                traffic yellow "Running: $Message"
+                try {
+                    Invoke-Expression $Message
+                    if ($LASTEXITCODE -eq 0 -or $null -eq $LASTEXITCODE) {
+                        traffic green "Completed successfully"
+                    } else {
+                        traffic red "Failed (exit code $LASTEXITCODE)"
+                    }
+                } catch {
+                    traffic red "Error: $_"
+                }
+            }
+        }
+        "clear" {
+            Send-TrafficCommand -Endpoint "/clear" -Body @{}
+            Write-Host "[Traffic Light] All sessions cleared." -ForegroundColor DarkYellow
+        }
         default {
-            Write-Host "Traffic Light CLI (PowerShell)" -ForegroundColor Cyan
-            Write-Host "Usage: traffic <on|off|yellow|green|red|clear> [message/id]"
-            Write-Host "Examples:"
-            Write-Host "  traffic on                        - Register current terminal"
-            Write-Host "  traffic yellow 'Generating code'  - Set yellow light"
-            Write-Host "  traffic green 'Task complete'     - Set green light"
-            Write-Host "  traffic red 'Waiting for input'   - Set red light"
-            Write-Host "  traffic off                       - Dismiss session"
+            Write-Host "Traffic Light CLI Controller" -ForegroundColor Cyan
+            Write-Host "User Commands: traffic on | traffic off" -ForegroundColor Green
+            Write-Host "Automatic Wrapper: traffic wrap '<command>'" -ForegroundColor Yellow
         }
     }
 }
+
+# Short alias /dr
+Set-Alias -Name dr -Value traffic -Scope Global

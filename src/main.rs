@@ -31,11 +31,11 @@ fn main() -> eframe::Result<()> {
         })
         .expect("Failed to spawn IPC thread");
 
-    // Eframe window options
+    // Eframe window options: Authentic vertical floating widget
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([280.0, 160.0])
-            .with_min_inner_size([120.0, 60.0])
+            .with_inner_size([85.0, 185.0])
+            .with_min_inner_size([50.0, 120.0])
             .with_transparent(true)
             .with_decorations(false)
             .with_always_on_top()
