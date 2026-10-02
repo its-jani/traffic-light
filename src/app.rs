@@ -12,6 +12,7 @@ pub struct TrafficLightApp {
     active_session_id: Option<String>,
     pulse_phase: f32,
     last_frame_time: Instant,
+    last_width: f32,
 }
 
 impl TrafficLightApp {
@@ -20,7 +21,7 @@ impl TrafficLightApp {
         let default_id = "agent-1".to_string();
         sessions.insert(
             default_id.clone(),
-            SessionInfo::new(default_id.clone(), Some("Agent #1".to_string()), Some(LightState::Green)),
+            SessionInfo::new(default_id.clone(), Some("Session #1".to_string()), Some(LightState::Green)),
         );
 
         Self {
@@ -30,6 +31,7 @@ impl TrafficLightApp {
             active_session_id: Some(default_id),
             pulse_phase: 0.0,
             last_frame_time: Instant::now(),
+            last_width: 88.0,
         }
     }
 
@@ -42,6 +44,12 @@ impl TrafficLightApp {
                     label,
                     message,
                 } => {
+                    // Replace placeholder session if this is the first real session connecting
+                    if self.sessions.len() == 1 && self.sessions.contains_key("agent-1") && session_id != "agent-1" {
+                        self.sessions.remove("agent-1");
+                        self.session_order.retain(|id| id != "agent-1");
+                    }
+
                     if let Some(session) = self.sessions.get_mut(&session_id) {
                         session.state = state;
                         if let Some(lbl) = label {
@@ -66,6 +74,12 @@ impl TrafficLightApp {
                     label,
                     initial_state,
                 } => {
+                    // Replace placeholder session if this is the first real session connecting
+                    if self.sessions.len() == 1 && self.sessions.contains_key("agent-1") && session_id != "agent-1" {
+                        self.sessions.remove("agent-1");
+                        self.session_order.retain(|id| id != "agent-1");
+                    }
+
                     if let Some(session) = self.sessions.get_mut(&session_id) {
                         if let Some(lbl) = label {
                             session.label = lbl;
@@ -111,6 +125,13 @@ impl eframe::App for TrafficLightApp {
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.process_ipc_events();
+
+        // Dynamically adjust window size if multiple session tabs are present
+        let needed_width = if self.session_order.len() > 1 { 120.0 } else { 88.0 };
+        if (needed_width - self.last_width).abs() > 0.5 {
+            self.last_width = needed_width;
+            ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(Vec2::new(needed_width, 190.0)));
+        }
 
         let now = Instant::now();
         let dt = now.duration_since(self.last_frame_time).as_secs_f32();

@@ -14,6 +14,24 @@ if [ -z "$TRAFFIC_SESSION_ID" ]; then
     export TRAFFIC_SESSION_ID="session-$$-$(date +%s | tail -c 5)"
 fi
 
+# Ensure background traffic-light process is running
+_ensure_daemon() {
+    if command -v curl >/dev/null 2>&1; then
+        if curl -s -m 1 "${TRAFFIC_BASE_URL}/ping" >/dev/null 2>&1; then
+            return 0
+        fi
+    fi
+
+    # Try starting daemon in background
+    if command -v traffic-light >/dev/null 2>&1; then
+        nohup traffic-light >/dev/null 2>&1 &
+        sleep 0.4
+    elif [ -x "$HOME/.cargo/bin/traffic-light" ]; then
+        nohup "$HOME/.cargo/bin/traffic-light" >/dev/null 2>&1 &
+        sleep 0.4
+    fi
+}
+
 # Send HTTP/JSON payload or fallback to raw TCP
 _traffic_send() {
     local endpoint="$1"
@@ -32,8 +50,9 @@ _traffic_send() {
 
 # /traffic on [session_id] [label]
 traffic_on() {
+    _ensure_daemon
     local sid="${1:-$TRAFFIC_SESSION_ID}"
-    local label="${2:-Terminal Agent ($$)}"
+    local label="${2:-Session ($$)}"
     _traffic_send "/session/on" "{\"session_id\":\"$sid\",\"label\":\"$label\",\"state\":\"green\"}"
     echo "[Traffic Light] Session '$sid' registered ($label)."
 }

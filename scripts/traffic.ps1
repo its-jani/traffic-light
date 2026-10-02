@@ -7,6 +7,44 @@ $global:TrafficPort = 8765
 $global:TrafficHost = "127.0.0.1"
 $global:TrafficSessionId = if ($env:TRAFFIC_SESSION_ID) { $env:TRAFFIC_SESSION_ID } else { "session-$PID" }
 
+function Test-TrafficLightRunning {
+    $url = "http://${global:TrafficHost}:${global:TrafficPort}/ping"
+    try {
+        $res = Invoke-RestMethod -Uri $url -Method Get -TimeoutSec 1 -ErrorAction Stop
+        return $true
+    } catch {
+        return $false
+    }
+}
+
+function Ensure-TrafficLightDaemon {
+    if (Test-TrafficLightRunning) {
+        return $true
+    }
+    # Check PATH first
+    $cmd = Get-Command "traffic-light" -ErrorAction SilentlyContinue
+    if ($cmd) {
+        Start-Process -FilePath $cmd.Source -WindowStyle Hidden
+        Start-Sleep -Milliseconds 450
+        return (Test-TrafficLightRunning)
+    }
+    # Check Cargo bin
+    $cargoBin = Join-Path $env:USERPROFILE ".cargo\bin\traffic-light.exe"
+    if (Test-Path $cargoBin) {
+        Start-Process -FilePath $cargoBin -WindowStyle Hidden
+        Start-Sleep -Milliseconds 450
+        return (Test-TrafficLightRunning)
+    }
+    # Check local target folder
+    $localBin = Join-Path $PSScriptRoot "..\target\release\traffic-light.exe"
+    if (Test-Path $localBin) {
+        Start-Process -FilePath $localBin -WindowStyle Hidden
+        Start-Sleep -Milliseconds 450
+        return (Test-TrafficLightRunning)
+    }
+    return $false
+}
+
 function Send-TrafficCommand {
     param(
         [string]$Endpoint,
@@ -33,9 +71,10 @@ function traffic {
 
     switch ($Action.ToLower()) {
         "on" {
+            Ensure-TrafficLightDaemon | Out-Null
             Send-TrafficCommand -Endpoint "/session/on" -Body @{
                 session_id = $SessionId
-                label = if ($Message) { $Message } else { "Agent ($PID)" }
+                label = if ($Message) { $Message } else { "Session ($PID)" }
                 state = "green"
             }
             Write-Host "[Traffic Light] Session '$SessionId' ON (Green)" -ForegroundColor Green
