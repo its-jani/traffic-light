@@ -1,21 +1,30 @@
-# Traffic Light Controller (/traffic)
+# Traffic Light Command (/traffic)
 
-Floating desktop traffic light widget that **automatically** tracks your AI agent lifecycle in real time.
+When `/traffic` is invoked, execute the corresponding action immediately in 1 step. **Do not search the repository, do not inspect source files, and do not run codebase searches.**
 
-## User Commands
-- `/traffic on [label]` — Attach / start traffic light widget for this session (Defaults to 🟢 Green)
-- `/traffic off` — Dismiss traffic light for this session
+## Actions:
 
-## Automatic State Transitions
-You do **not** need to change colors manually. The agent and hooks manage the traffic light automatically:
-- 🟡 **Yellow (Pulse / Working)**: Automatically turns Yellow when AI is thinking, executing commands, or generating code.
-- 🔴 **Red (Action Required)**: Automatically turns Red when AI needs user input, confirmation, or hits a blocking error.
-- 🟢 **Green (Ready / Idle)**: Automatically turns Green when the task finishes and the AI is ready for your next prompt.
-
-## Background API (For Hooks / Integrations)
+### 1. `/traffic on` (or `/traffic`)
+Run this single command immediately in the background shell:
 ```bash
-# State updates sent automatically by lifecycle hooks:
-curl -s -X POST http://127.0.0.1:8765/state \
-  -H "Content-Type: application/json" \
-  -d '{"session_id":"active-session","state":"yellow","message":"Generating code..."}'
+curl -s -X POST http://127.0.0.1:8765/session/on -H "Content-Type: application/json" -d "{\"session_id\":\"active-session\",\"label\":\"OpenCode\",\"state\":\"green\"}" || traffic-light
 ```
+Output: `Traffic Light activated (Green) 🟢`
+
+### 2. `/traffic off`
+Run:
+```bash
+curl -s -X POST http://127.0.0.1:8765/session/off -H "Content-Type: application/json" -d "{\"session_id\":\"active-session\"}"
+```
+Output: `Traffic Light dismissed ⚪`
+
+### 3. State Updates:
+- `/traffic yellow [message]` -> `curl -s -X POST http://127.0.0.1:8765/state -H "Content-Type: application/json" -d "{\"session_id\":\"active-session\",\"state\":\"yellow\",\"message\":\"$ARG\"}"`
+- `/traffic green [message]` -> `curl -s -X POST http://127.0.0.1:8765/state -H "Content-Type: application/json" -d "{\"session_id\":\"active-session\",\"state\":\"green\",\"message\":\"$ARG\"}"`
+- `/traffic red [message]` -> `curl -s -X POST http://127.0.0.1:8765/state -H "Content-Type: application/json" -d "{\"session_id\":\"active-session\",\"state\":\"red\",\"message\":\"$ARG\"}"`
+
+### Automatic Lifecycle Rule:
+- When thinking, compiling, or executing tools in this session: send `state=yellow`.
+- When an error occurs or waiting for user confirmation: send `state=red`.
+- When task is completed and waiting for user prompt: send `state=green`.
+

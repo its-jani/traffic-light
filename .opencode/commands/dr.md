@@ -1,10 +1,10 @@
-# Traffic Light Controller Alias (/dr)
+# Traffic Light Alias (/dr)
 
-Short alias for `/traffic`. Controls the floating desktop traffic light widget.
+Alias for `/traffic`. Execute the corresponding curl action immediately in 1 step without reading source files or repository searches.
 
-## Usage
-- `/dr on [label]` - Turn traffic light ON (Green)
-- `/dr yellow [msg]` - Set light to Yellow (Thinking / Working)
-- `/dr green [msg]` - Set light to Green (Done / Ready)
-- `/dr red [msg]` - Set light to Red (Needs Input / Error)
-- `/dr off` - Turn traffic light OFF / dismiss
+- `/dr on`: `curl -s -X POST http://127.0.0.1:8765/session/on -H "Content-Type: application/json" -d "{\"session_id\":\"active-session\",\"label\":\"OpenCode\",\"state\":\"green\"}"`
+- `/dr off`: `curl -s -X POST http://127.0.0.1:8765/session/off -H "Content-Type: application/json" -d "{\"session_id\":\"active-session\"}"`
+- `/dr yellow`: `curl -s -X POST http://127.0.0.1:8765/state -H "Content-Type: application/json" -d "{\"session_id\":\"active-session\",\"state\":\"yellow\"}"`
+- `/dr green`: `curl -s -X POST http://127.0.0.1:8765/state -H "Content-Type: application/json" -d "{\"session_id\":\"active-session\",\"state\":\"green\"}"`
+- `/dr red`: `curl -s -X POST http://127.0.0.1:8765/state -H "Content-Type: application/json" -d "{\"session_id\":\"active-session\",\"state\":\"red\"}"`
+

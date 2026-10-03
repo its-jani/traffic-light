@@ -63,6 +63,8 @@ async fn handle_http_request(
     if parts.len() < 2 {
         let resp = "HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
         socket.write_all(resp.as_bytes()).await?;
+        let _ = socket.flush().await;
+        let _ = socket.shutdown().await;
         return Ok(());
     }
 
@@ -72,6 +74,8 @@ async fn handle_http_request(
     if method == "OPTIONS" {
         let resp = "HTTP/1.1 204 No Content\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: POST, GET, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type\r\nConnection: close\r\n\r\n";
         socket.write_all(resp.as_bytes()).await?;
+        let _ = socket.flush().await;
+        let _ = socket.shutdown().await;
         return Ok(());
     }
 
@@ -168,6 +172,8 @@ async fn handle_http_request(
     );
 
     socket.write_all(response.as_bytes()).await?;
+    let _ = socket.flush().await;
+    let _ = socket.shutdown().await;
     Ok(())
 }
 
@@ -206,6 +212,8 @@ async fn handle_raw_payload(
             });
         }
         let _ = socket.write_all(b"{\"status\":\"ok\"}\n").await;
+        let _ = socket.flush().await;
+        let _ = socket.shutdown().await;
     } else {
         // Fallback for simple single-word commands: "green", "yellow", "red", "off", "clear"
         let parts: Vec<&str> = text.split_whitespace().collect();
@@ -227,6 +235,8 @@ async fn handle_raw_payload(
             }
         }
         let _ = socket.write_all(b"{\"status\":\"ok\"}\n").await;
+        let _ = socket.flush().await;
+        let _ = socket.shutdown().await;
     }
 
     Ok(())

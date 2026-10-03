@@ -109,7 +109,7 @@ function traffic {
                 message = $msg
             }
         }
-        "wrap" -or "run" {
+        { $_ -in "wrap", "run" } {
             if ($Message) {
                 traffic yellow "Running: $Message"
                 try {
