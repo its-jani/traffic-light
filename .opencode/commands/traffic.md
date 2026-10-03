@@ -5,23 +5,23 @@ When `/traffic` is invoked, execute the corresponding action immediately in 1 st
 ## Actions:
 
 ### 1. `/traffic on` (or `/traffic`)
-Run this single command immediately in the background shell:
+Run:
 ```bash
-curl -s -X POST http://127.0.0.1:8765/session/on -H "Content-Type: application/json" -d "{\"session_id\":\"active-session\",\"label\":\"OpenCode\",\"state\":\"green\"}" || traffic-light
+powershell -NoProfile -Command "if (-not (Get-Process traffic-light -ErrorAction SilentlyContinue)) { Start-Process traffic-light; Start-Sleep -Milliseconds 400 }; curl.exe -s 'http://127.0.0.1:8765/session/on?session_id=active-session&label=OpenCode&state=green'"
 ```
 Output: `Traffic Light activated (Green) 🟢`
 
 ### 2. `/traffic off`
 Run:
 ```bash
-curl -s -X POST http://127.0.0.1:8765/session/off -H "Content-Type: application/json" -d "{\"session_id\":\"active-session\"}"
+curl.exe -s "http://127.0.0.1:8765/session/off?session_id=active-session"
 ```
 Output: `Traffic Light dismissed ⚪`
 
 ### 3. State Updates:
-- `/traffic yellow [message]` -> `curl -s -X POST http://127.0.0.1:8765/state -H "Content-Type: application/json" -d "{\"session_id\":\"active-session\",\"state\":\"yellow\",\"message\":\"$ARG\"}"`
-- `/traffic green [message]` -> `curl -s -X POST http://127.0.0.1:8765/state -H "Content-Type: application/json" -d "{\"session_id\":\"active-session\",\"state\":\"green\",\"message\":\"$ARG\"}"`
-- `/traffic red [message]` -> `curl -s -X POST http://127.0.0.1:8765/state -H "Content-Type: application/json" -d "{\"session_id\":\"active-session\",\"state\":\"red\",\"message\":\"$ARG\"}"`
+- `/traffic yellow [message]` -> `curl.exe -s "http://127.0.0.1:8765/state?session_id=active-session&state=yellow&message=$ARG"`
+- `/traffic green [message]` -> `curl.exe -s "http://127.0.0.1:8765/state?session_id=active-session&state=green&message=$ARG"`
+- `/traffic red [message]` -> `curl.exe -s "http://127.0.0.1:8765/state?session_id=active-session&state=red&message=$ARG"`
 
 ### Automatic Lifecycle Rule:
 - When thinking, compiling, or executing tools in this session: send `state=yellow`.
