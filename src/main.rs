@@ -31,7 +31,7 @@ fn main() -> eframe::Result<()> {
         })
         .expect("Failed to spawn IPC thread");
 
-    // Eframe window options: Authentic vertical floating widget positioned at top-right
+    // Eframe window options: Authentic vertical floating widget
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([88.0, 190.0])
@@ -39,7 +39,6 @@ fn main() -> eframe::Result<()> {
             .with_transparent(true)
             .with_decorations(false)
             .with_always_on_top()
-            .with_position([1720.0, 40.0])
             .with_title("Traffic Light"),
         ..Default::default()
     };

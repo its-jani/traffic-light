@@ -35,7 +35,7 @@ impl TrafficLightApp {
         }
     }
 
-    fn process_ipc_events(&mut self) {
+    fn process_ipc_events(&mut self, ctx: &egui::Context) {
         while let Ok(cmd) = self.rx.try_recv() {
             match cmd {
                 IpcCommand::SetState {
@@ -96,6 +96,9 @@ impl TrafficLightApp {
                         }
                     }
                     self.active_session_id = Some(session_id);
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                    ctx.request_repaint();
                 }
                 IpcCommand::SessionOff { session_id } => {
                     self.sessions.remove(&session_id);
@@ -103,11 +106,13 @@ impl TrafficLightApp {
                     if self.active_session_id.as_deref() == Some(&session_id) {
                         self.active_session_id = self.session_order.last().cloned();
                     }
+                    ctx.request_repaint();
                 }
                 IpcCommand::ClearAll => {
                     self.sessions.clear();
                     self.session_order.clear();
                     self.active_session_id = None;
+                    ctx.request_repaint();
                 }
             }
         }
@@ -124,7 +129,7 @@ impl eframe::App for TrafficLightApp {
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.process_ipc_events();
+        self.process_ipc_events(ctx);
 
         // Dynamically adjust window size if multiple session tabs are present
         let needed_width = if self.session_order.len() > 1 { 120.0 } else { 88.0 };
