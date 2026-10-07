@@ -1,12 +1,20 @@
 # Rust build artifacts
 /target/
+dist/
+npm-bins/
+npm-dist-bins/
+release-assets/
+*.tar.gz
+*.zip
+*.tgz
 
 # Tool outputs & analysis
 /graphify-out/
 
-# Node & dependencies
+# Node & npm artifacts
 node_modules/
 .opencode/node_modules/
+npm/packages/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
@@ -17,4 +25,4 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
-*.swo
+*.swo
