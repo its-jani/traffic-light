@@ -5,14 +5,14 @@ on:
     tags:
       - "v*"
 
-permissions:
-  contents: write
-  id-token: write
+permissions: {}
 
 jobs:
   build-binaries:
     name: Build (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
     strategy:
       fail-fast: true
       matrix:
@@ -95,23 +95,16 @@ jobs:
           name: npm-bin-${{ matrix.platform_id }}
           path: npm-bins/*
 
-  publish:
-    name: GitHub Release & npm Trusted Publishing
+  create-release:
+    name: GitHub Release
     needs: build-binaries
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      id-token: write
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
-
-      - name: Setup Node.js
-        uses: actions/setup-node@60edb5dd545a775178f525247059d6427f4f91a9 # v4.0.2
-        with:
-          node-version: 20
-          registry-url: 'https://registry.npmjs.org'
 
       - name: Download all release archives
         uses: actions/download-artifact@c850b930e6ba138125429b7e5c93fe707f797fa0 # v4.1.4
@@ -120,14 +113,7 @@ jobs:
           path: release-assets
           merge-multiple: true
 
-      - name: Download all npm binaries
-        uses: actions/download-artifact@c850b930e6ba138125429b7e5c93fe707f797fa0 # v4.1.4
-        with:
-          pattern: npm-bin-*
-          path: npm-dist-bins
-          merge-multiple: true
-
-      - name: Generate SHA256SUMS and copy install scripts
+      - name: Generate SHA256SUMS and attach installers
         shell: bash
         run: |
           cd release-assets
@@ -142,10 +128,39 @@ jobs:
             release-assets/*
           generate_release_notes: true
 
+  publish-npm:
+    name: npm Trusted Publishing
+    needs: [build-binaries, create-release]
+    if: vars.NPM_PUBLISH == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+
+      - name: Setup Node.js (v20+, npm v10.9.0+)
+        uses: actions/setup-node@60edb5dd545a775178f525247059d6427f4f91a9 # v4.0.2
+        with:
+          node-version: 20
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Download all npm binaries
+        uses: actions/download-artifact@c850b930e6ba138125429b7e5c93fe707f797fa0 # v4.1.4
+        with:
+          pattern: npm-bin-*
+          path: npm-dist-bins
+          merge-multiple: true
+
       - name: Prepare npm platform and main packages
         run: node npm/scripts/prepare.mjs --bin-dir npm-dist-bins
 
-      - name: Publish to npm (Trusted Publishing / OIDC)
+      - name: Verify package signatures and integrity
+        run: node npm/scripts/verify-packages.mjs
+
+      - name: Publish to npm with provenance
         run: |
           # 1. Publish platform packages first
           for pkg in npm/packages/traffic-status-*; do
@@ -159,7 +174,7 @@ jobs:
             fi
           done
 
-          # 2. Publish main package
+          # 2. Publish root package
           MAIN_NAME=$(node -e "console.log(JSON.parse(require('fs').readFileSync('npm/traffic-status/package.json')).name)")
           MAIN_VER=$(node -e "console.log(JSON.parse(require('fs').readFileSync('npm/traffic-status/package.json')).version)")
           if npm view "$MAIN_NAME@$MAIN_VER" version >/dev/null 2>&1; then

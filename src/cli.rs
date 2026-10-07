@@ -352,10 +352,17 @@ pub fn install_project(target: &Path, dry_run: bool, force: bool) {
         target.to_path_buf()
     };
 
-    println!(
-        "🚦 Installing Traffic Status into project: {}",
-        target_dir.display()
-    );
+    if dry_run {
+        println!(
+            "🚦 [dry-run] Installing Traffic Status into project: {}",
+            target_dir.display()
+        );
+    } else {
+        println!(
+            "🚦 Installing Traffic Status into project: {}",
+            target_dir.display()
+        );
+    }
 
     let claude_cmd_content = include_str!("../.claude/commands/traffic.md");
     let opencode_cmd_content = include_str!("../.opencode/commands/traffic.md");
@@ -367,8 +374,16 @@ pub fn install_project(target: &Path, dry_run: bool, force: bool) {
         .join("commands")
         .join("traffic.md");
     match safe_write_file(&claude_file, claude_cmd_content, dry_run, force) {
-        Ok(true) => println!("  ✅ Installed .claude/commands/traffic.md"),
-        Ok(false) => println!("  ℹ️ .claude/commands/traffic.md is already up to date"),
+        Ok(true) => {
+            if !dry_run {
+                println!("  ✅ Installed .claude/commands/traffic.md");
+            }
+        }
+        Ok(false) => {
+            if !dry_run {
+                println!("  ℹ️ .claude/commands/traffic.md is already up to date");
+            }
+        }
         Err(e) => eprintln!("  ❌ {e}"),
     }
 
@@ -383,14 +398,30 @@ pub fn install_project(target: &Path, dry_run: bool, force: bool) {
         .join("traffic-status.js");
 
     match safe_write_file(&opencode_cmd, opencode_cmd_content, dry_run, force) {
-        Ok(true) => println!("  ✅ Installed .opencode/commands/traffic.md"),
-        Ok(false) => println!("  ℹ️ .opencode/commands/traffic.md is already up to date"),
+        Ok(true) => {
+            if !dry_run {
+                println!("  ✅ Installed .opencode/commands/traffic.md");
+            }
+        }
+        Ok(false) => {
+            if !dry_run {
+                println!("  ℹ️ .opencode/commands/traffic.md is already up to date");
+            }
+        }
         Err(e) => eprintln!("  ❌ {e}"),
     }
 
     match safe_write_file(&opencode_plugin, opencode_plugin_content, dry_run, force) {
-        Ok(true) => println!("  ✅ Installed .opencode/plugins/traffic-status.js"),
-        Ok(false) => println!("  ℹ️ .opencode/plugins/traffic-status.js is already up to date"),
+        Ok(true) => {
+            if !dry_run {
+                println!("  ✅ Installed .opencode/plugins/traffic-status.js");
+            }
+        }
+        Ok(false) => {
+            if !dry_run {
+                println!("  ℹ️ .opencode/plugins/traffic-status.js is already up to date");
+            }
+        }
         Err(e) => eprintln!("  ❌ {e}"),
     }
 
@@ -401,14 +432,20 @@ pub fn install_project(target: &Path, dry_run: bool, force: bool) {
         .join("traffic-light.js");
     let _ = safe_remove_file(&old_plugin, dry_run, false);
 
-    println!(
-        "\n✨ Project installation complete! (Scope: {})",
-        target_dir.display()
-    );
+    if !dry_run {
+        println!(
+            "\n✨ Project installation complete! (Scope: {})",
+            target_dir.display()
+        );
+    }
 }
 
 pub fn install_global(dry_run: bool, force: bool) {
-    println!("🚦 Installing Traffic Status globally (All Projects)...");
+    if dry_run {
+        println!("🚦 [dry-run] Installing Traffic Status globally (All Projects)...");
+    } else {
+        println!("🚦 Installing Traffic Status globally (All Projects)...");
+    }
 
     let home = match get_home_dir() {
         Some(h) => h,
@@ -428,11 +465,19 @@ pub fn install_global(dry_run: bool, force: bool) {
     // 1. Global Claude Code (~/.claude/commands/traffic.md)
     let global_claude = home.join(".claude").join("commands").join("traffic.md");
     match safe_write_file(&global_claude, claude_cmd_content, dry_run, force) {
-        Ok(true) => println!(
-            "  ✅ Global Claude Code command installed: {}",
-            global_claude.display()
-        ),
-        Ok(false) => println!("  ℹ️ Global Claude Code command is already up to date"),
+        Ok(true) => {
+            if !dry_run {
+                println!(
+                    "  ✅ Global Claude Code command installed: {}",
+                    global_claude.display()
+                );
+            }
+        }
+        Ok(false) => {
+            if !dry_run {
+                println!("  ℹ️ Global Claude Code command is already up to date");
+            }
+        }
         Err(e) => eprintln!("  ❌ {e}"),
     }
 
@@ -446,26 +491,42 @@ pub fn install_global(dry_run: bool, force: bool) {
         let plugin_file = base.join("plugins").join("traffic-status.js");
 
         match safe_write_file(&cmd_file, opencode_cmd_content, dry_run, force) {
-            Ok(true) => println!(
-                "  ✅ Global OpenCode command installed: {}",
-                cmd_file.display()
-            ),
-            Ok(false) => println!(
-                "  ℹ️ Global OpenCode command is up to date: {}",
-                cmd_file.display()
-            ),
+            Ok(true) => {
+                if !dry_run {
+                    println!(
+                        "  ✅ Global OpenCode command installed: {}",
+                        cmd_file.display()
+                    );
+                }
+            }
+            Ok(false) => {
+                if !dry_run {
+                    println!(
+                        "  ℹ️ Global OpenCode command is up to date: {}",
+                        cmd_file.display()
+                    );
+                }
+            }
             Err(e) => eprintln!("  ❌ {e}"),
         }
 
         match safe_write_file(&plugin_file, opencode_plugin_content, dry_run, force) {
-            Ok(true) => println!(
-                "  ✅ Global OpenCode plugin installed: {}",
-                plugin_file.display()
-            ),
-            Ok(false) => println!(
-                "  ℹ️ Global OpenCode plugin is up to date: {}",
-                plugin_file.display()
-            ),
+            Ok(true) => {
+                if !dry_run {
+                    println!(
+                        "  ✅ Global OpenCode plugin installed: {}",
+                        plugin_file.display()
+                    );
+                }
+            }
+            Ok(false) => {
+                if !dry_run {
+                    println!(
+                        "  ℹ️ Global OpenCode plugin is up to date: {}",
+                        plugin_file.display()
+                    );
+                }
+            }
             Err(e) => eprintln!("  ❌ {e}"),
         }
 
@@ -477,8 +538,10 @@ pub fn install_global(dry_run: bool, force: bool) {
     // Clean legacy binary if present and marked
     clean_legacy_installations(dry_run);
 
-    println!("\n🎉 Global Installation Complete!");
-    println!("Scope: Machine-Wide (Current & Future Projects)");
+    if !dry_run {
+        println!("\n🎉 Global Installation Complete!");
+        println!("Scope: Machine-Wide (Current & Future Projects)");
+    }
 }
 
 pub fn uninstall_project(target: &Path, dry_run: bool, force: bool) {
@@ -490,10 +553,20 @@ pub fn uninstall_project(target: &Path, dry_run: bool, force: bool) {
         target.to_path_buf()
     };
 
-    println!(
-        "🗑️  Removing Traffic Status from project: {}",
-        target_dir.display()
-    );
+    if dry_run {
+        println!(
+            "🗑️  [dry-run] Removing Traffic Status from project: {}",
+            target_dir.display()
+        );
+    } else {
+        println!(
+            "🗑️  Removing Traffic Status from project: {}",
+            target_dir.display()
+        );
+    }
+
+    // Stop daemon if running
+    stop_daemon_if_running(dry_run);
 
     let claude_file = target_dir
         .join(".claude")
@@ -502,7 +575,9 @@ pub fn uninstall_project(target: &Path, dry_run: bool, force: bool) {
     if claude_file.exists() {
         match safe_remove_file(&claude_file, dry_run, force) {
             Ok(true) => {
-                println!("  🗑️  Removed .claude/commands/traffic.md");
+                if !dry_run {
+                    println!("  🗑️  Removed .claude/commands/traffic.md");
+                }
                 safe_remove_empty_dir(&target_dir.join(".claude").join("commands"), dry_run);
                 safe_remove_empty_dir(&target_dir.join(".claude"), dry_run);
             }
@@ -518,7 +593,9 @@ pub fn uninstall_project(target: &Path, dry_run: bool, force: bool) {
     if opencode_cmd.exists() {
         match safe_remove_file(&opencode_cmd, dry_run, force) {
             Ok(true) => {
-                println!("  🗑️  Removed .opencode/commands/traffic.md");
+                if !dry_run {
+                    println!("  🗑️  Removed .opencode/commands/traffic.md");
+                }
                 safe_remove_empty_dir(&target_dir.join(".opencode").join("commands"), dry_run);
             }
             Ok(false) => {}
@@ -533,7 +610,9 @@ pub fn uninstall_project(target: &Path, dry_run: bool, force: bool) {
     if opencode_plugin.exists() {
         match safe_remove_file(&opencode_plugin, dry_run, force) {
             Ok(true) => {
-                println!("  🗑️  Removed .opencode/plugins/traffic-status.js");
+                if !dry_run {
+                    println!("  🗑️  Removed .opencode/plugins/traffic-status.js");
+                }
                 safe_remove_empty_dir(&target_dir.join(".opencode").join("plugins"), dry_run);
             }
             Ok(false) => {}
@@ -552,11 +631,17 @@ pub fn uninstall_project(target: &Path, dry_run: bool, force: bool) {
 
     safe_remove_empty_dir(&target_dir.join(".opencode"), dry_run);
 
-    println!("\n✅ Removed from project: {}", target_dir.display());
+    if !dry_run {
+        println!("\n✅ Removed from project: {}", target_dir.display());
+    }
 }
 
 pub fn uninstall_global(dry_run: bool, force: bool) {
-    println!("🗑️  Removing Traffic Status globally...");
+    if dry_run {
+        println!("🗑️  [dry-run] Removing Traffic Status globally...");
+    } else {
+        println!("🗑️  Removing Traffic Status globally...");
+    }
 
     let home = match get_home_dir() {
         Some(h) => h,
@@ -566,12 +651,17 @@ pub fn uninstall_global(dry_run: bool, force: bool) {
         }
     };
 
+    // Stop daemon if running
+    stop_daemon_if_running(dry_run);
+
     // 1. Remove Claude global command
     let global_claude = home.join(".claude").join("commands").join("traffic.md");
     if global_claude.exists() {
         match safe_remove_file(&global_claude, dry_run, force) {
             Ok(true) => {
-                println!("  🗑️  Removed global Claude Code command");
+                if !dry_run {
+                    println!("  🗑️  Removed global Claude Code command");
+                }
                 safe_remove_empty_dir(&home.join(".claude").join("commands"), dry_run);
             }
             Ok(false) => {}
@@ -602,10 +692,12 @@ pub fn uninstall_global(dry_run: bool, force: bool) {
             safe_remove_empty_dir(&base.join("plugins"), dry_run);
         }
         safe_remove_empty_dir(base, dry_run);
-        println!(
-            "  🗑️  Cleaned Traffic Status entries from {}",
-            base.display()
-        );
+        if !dry_run {
+            println!(
+                "  🗑️  Cleaned Traffic Status entries from {}",
+                base.display()
+            );
+        }
     }
 
     // 3. Remove stable binary
@@ -629,7 +721,76 @@ pub fn uninstall_global(dry_run: bool, force: bool) {
     // 4. Legacy cleanups
     clean_legacy_installations(dry_run);
 
-    println!("\n✨ Traffic Status global uninstallation complete.");
+    if !dry_run {
+        println!("\n✨ Traffic Status global uninstallation complete.");
+    }
+}
+
+pub fn stop_daemon_if_running(dry_run: bool) {
+    let port = get_configured_port();
+    let addr = format!("127.0.0.1:{}", port);
+    let mut stream = match TcpStream::connect_timeout(
+        &addr
+            .parse()
+            .unwrap_or_else(|_| "127.0.0.1:8765".parse().unwrap()),
+        Duration::from_millis(300),
+    ) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    let _ = stream.set_read_timeout(Some(Duration::from_millis(500)));
+    let _ = stream.set_write_timeout(Some(Duration::from_millis(500)));
+
+    let ping_req = format!(
+        "GET /ping HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nConnection: close\r\n\r\n",
+        port
+    );
+    if stream.write_all(ping_req.as_bytes()).is_err() {
+        return;
+    }
+
+    let mut response = Vec::new();
+    let _ = stream.read_to_end(&mut response);
+    let resp_str = String::from_utf8_lossy(&response);
+
+    // Verify it is our traffic-status app
+    if !resp_str.contains("HTTP/1.1 200") || !resp_str.contains("traffic-status") {
+        return;
+    }
+
+    if dry_run {
+        println!("  [dry-run] Would stop running traffic-status daemon on port {port}");
+        return;
+    }
+
+    // Send POST /shutdown
+    let mut shutdown_stream = match TcpStream::connect_timeout(
+        &addr
+            .parse()
+            .unwrap_or_else(|_| "127.0.0.1:8765".parse().unwrap()),
+        Duration::from_millis(500),
+    ) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    let shutdown_req = format!(
+        "POST /shutdown HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{{}}",
+        port
+    );
+    let _ = shutdown_stream.write_all(shutdown_req.as_bytes());
+    let mut resp = Vec::new();
+    let _ = shutdown_stream.read_to_end(&mut resp);
+
+    // Wait up to 1.5s for process to exit
+    for _ in 0..15 {
+        std::thread::sleep(Duration::from_millis(100));
+        if !is_daemon_alive(port) {
+            println!("  🛑 Stopped running daemon on port {port}");
+            return;
+        }
+    }
 }
 
 fn clean_legacy_installations(dry_run: bool) {

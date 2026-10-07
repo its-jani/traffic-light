@@ -97,6 +97,7 @@ pub enum IpcCommand {
         session_id: String,
     },
     ClearAll,
+    Shutdown,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

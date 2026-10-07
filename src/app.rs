@@ -124,6 +124,10 @@ impl TrafficStatusApp {
                     self.active_session_id = None;
                     ctx.request_repaint();
                 }
+                IpcCommand::Shutdown => {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    std::process::exit(0);
+                }
             }
         }
     }

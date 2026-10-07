@@ -88,11 +88,83 @@ async fn handle_http_request(
     let method = parts[0];
     let full_path = parts[1];
 
+    // Host header validation: strictly allow only loopback hosts
+    let host_header = lines.clone().find_map(|line| {
+        let trimmed = line.trim();
+        let lower = trimmed.to_ascii_lowercase();
+        if lower.starts_with("host:") {
+            Some(trimmed[5..].trim())
+        } else {
+            None
+        }
+    });
+
+    match host_header {
+        Some(host) => {
+            let host_without_port = host.split(':').next().unwrap_or("").trim();
+            if host_without_port != "localhost"
+                && host_without_port != "127.0.0.1"
+                && host_without_port != "[::1]"
+                && host_without_port != "::1"
+            {
+                send_response(
+                    socket,
+                    "403 Forbidden",
+                    "application/json",
+                    r#"{"error":"Forbidden: Host header must target loopback (localhost or 127.0.0.1)"}"#,
+                )
+                .await?;
+                return Ok(());
+            }
+        }
+        None => {
+            // In HTTP/1.1, Host header is mandatory
+            if parts.len() >= 3 && parts[2].starts_with("HTTP/1.1") {
+                send_response(
+                    socket,
+                    "400 Bad Request",
+                    "application/json",
+                    r#"{"error":"Missing Host header"}"#,
+                )
+                .await?;
+                return Ok(());
+            }
+        }
+    }
+
+    // Reject bodies declaring Content-Length > MAX_REQUEST_SIZE
+    let content_length = lines.clone().find_map(|line| {
+        let trimmed = line.trim();
+        let lower = trimmed.to_ascii_lowercase();
+        if lower.starts_with("content-length:") {
+            trimmed[15..].trim().parse::<usize>().ok()
+        } else {
+            None
+        }
+    });
+
+    if let Some(cl) = content_length {
+        if cl > MAX_REQUEST_SIZE {
+            send_response(
+                socket,
+                "413 Payload Too Large",
+                "application/json",
+                r#"{"error":"Payload too large (exceeds 64 KB)"}"#,
+            )
+            .await?;
+            return Ok(());
+        }
+    }
+
+    // Reject CORS preflight OPTIONS requests without permissive headers
     if method == "OPTIONS" {
-        let resp = "HTTP/1.1 204 No Content\r\nAccess-Control-Allow-Methods: POST, GET, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type\r\nConnection: close\r\n\r\n";
-        socket.write_all(resp.as_bytes()).await?;
-        let _ = socket.flush().await;
-        let _ = socket.shutdown().await;
+        send_response(
+            socket,
+            "405 Method Not Allowed",
+            "application/json",
+            r#"{"error":"OPTIONS preflight is not permitted"}"#,
+        )
+        .await?;
         return Ok(());
     }
 
@@ -127,7 +199,8 @@ async fn handle_http_request(
         || path == "/on"
         || path == "/session/off"
         || path == "/off"
-        || path == "/clear";
+        || path == "/clear"
+        || path == "/shutdown";
 
     if is_mutation_endpoint && method != "POST" {
         send_response(
@@ -204,7 +277,10 @@ async fn handle_http_request(
         .unwrap_or_else(|| "default".to_string());
     let action = payload.action.unwrap_or_default().to_lowercase();
 
-    let response_body = if path == "/session/on" || path == "/on" || action == "on" {
+    let response_body = if path == "/shutdown" || action == "shutdown" {
+        let _ = tx.send(IpcCommand::Shutdown);
+        r#"{"status":"ok","action":"shutdown"}"#.to_string()
+    } else if path == "/session/on" || path == "/on" || action == "on" {
         let initial_state = payload.state.as_deref().and_then(LightState::parse_str);
         let _ = tx.send(IpcCommand::SessionOn {
             session_id: session_id.clone(),
