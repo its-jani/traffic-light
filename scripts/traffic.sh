@@ -48,7 +48,6 @@ _traffic_send() {
 
 # --- Core Commands ---
 
-# /traffic on [session_id] [label]
 traffic_on() {
     _ensure_daemon
     local sid="${1:-$TRAFFIC_SESSION_ID}"
@@ -57,15 +56,12 @@ traffic_on() {
     echo "[Traffic Light] Session '$sid' registered ($label)."
 }
 
-# /traffic off [session_id]
 traffic_off() {
     local sid="${1:-$TRAFFIC_SESSION_ID}"
     _traffic_send "/session/off" "{\"session_id\":\"$sid\"}"
     echo "[Traffic Light] Session '$sid' dismissed."
 }
 
-# /traffic state <state> [message] [session_id]
-# state can be: green, yellow, red, off
 traffic_state() {
     local state="$1"
     local message="$2"
@@ -83,30 +79,21 @@ traffic_state() {
     fi
 }
 
-# --- Quick Convenience State Functions ---
-
-# Yellow: Working / Thinking / Generating
 traffic_yellow() {
     local msg="${1:-Working / Thinking...}"
     traffic_state "yellow" "$msg"
 }
 
-# Green: Task Done / Ready / Idle
 traffic_green() {
     local msg="${1:-Ready for next prompt}"
     traffic_state "green" "$msg"
 }
 
-# Red: Error / Needs user input / Halted
 traffic_red() {
     local msg="${1:-Needs user input / Halted}"
     traffic_state "red" "$msg"
 }
 
-# --- Agent Command Wrapper ---
-# Automatically turns light Yellow during command execution,
-# Green on success (exit code 0), and Red on error / non-zero exit code.
-# Usage: traffic_wrap npm test
 traffic_wrap() {
     traffic_yellow "Running: $*"
     "$@"
@@ -121,6 +108,7 @@ traffic_wrap() {
 
 # --- Slash Command Interceptor ---
 traffic() {
+    local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     case "$1" in
         "on")
             traffic_on "$2" "$3"
@@ -137,6 +125,18 @@ traffic() {
         "red"|"error"|"halt"|"input")
             traffic_red "$2"
             ;;
+        "install-project")
+            bash "$script_dir/install-project.sh" "$2"
+            ;;
+        "install-global")
+            bash "$script_dir/install-global.sh"
+            ;;
+        "uninstall-project")
+            bash "$script_dir/uninstall-project.sh" "$2"
+            ;;
+        "uninstall-global")
+            bash "$script_dir/uninstall-global.sh"
+            ;;
         "wrap")
             shift
             traffic_wrap "$@"
@@ -145,16 +145,18 @@ traffic() {
             _traffic_send "/clear" "{}"
             ;;
         *)
-            echo "Traffic Light CLI Controller"
-            echo "Usage: traffic <on|off|green|yellow|red|wrap|clear> [args...]"
-            echo ""
-            echo "Examples:"
-            echo "  traffic on [session_id] [label]   - Register new traffic light"
-            echo "  traffic yellow 'Generating...'    - Set working/thinking state"
-            echo "  traffic green 'Done'              - Set ready/done state"
-            echo "  traffic red 'Needs confirmation'  - Set input-required/error state"
-            echo "  traffic wrap <command...>         - Wrap a command execution"
+            echo "🚦 Traffic Light CLI Controller"
+            echo "Session Controls:"
+            echo "  traffic on                        - Register / show traffic light"
             echo "  traffic off                       - Dismiss current session"
+            echo "  traffic green|yellow|red [msg]    - Set current state"
+            echo "  traffic wrap <command...>         - Wrap a command execution"
+            echo ""
+            echo "Management Commands:"
+            echo "  traffic install-project [path]    - Install traffic light for specific project"
+            echo "  traffic install-global            - Install traffic light globally for all projects"
+            echo "  traffic uninstall-project [path]  - Remove traffic light from specific project"
+            echo "  traffic uninstall-global          - Completely remove traffic light from laptop"
             ;;
     esac
 }
@@ -163,4 +165,3 @@ traffic() {
 alias "/traffic"=traffic
 alias "dr"=traffic
 alias "/dr"=traffic
-

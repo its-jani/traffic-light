@@ -1,15 +1,22 @@
 pub mod types;
 pub mod ipc;
 pub mod app;
+pub mod cli;
 
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use eframe::egui;
 
 use crate::app::TrafficLightApp;
+use crate::cli::handle_cli_args;
 use crate::ipc::start_ipc_server;
 use crate::types::IpcCommand;
 
 fn main() -> eframe::Result<()> {
+    let args: Vec<String> = std::env::args().collect();
+    if handle_cli_args(&args) {
+        return Ok(());
+    }
+
     let (tx, rx): (Sender<IpcCommand>, Receiver<IpcCommand>) = unbounded();
 
     // Start background Tokio IPC server

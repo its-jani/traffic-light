@@ -109,6 +109,22 @@ function traffic {
                 message = $msg
             }
         }
+        { $_ -in "install-project", "install_project" } {
+            $script = Join-Path $PSScriptRoot "install-project.ps1"
+            & $script $Message
+        }
+        { $_ -in "install-global", "install_global" } {
+            $script = Join-Path $PSScriptRoot "install-global.ps1"
+            & $script
+        }
+        { $_ -in "uninstall-project", "uninstall_project" } {
+            $script = Join-Path $PSScriptRoot "uninstall-project.ps1"
+            & $script $Message
+        }
+        { $_ -in "uninstall-global", "uninstall_global", "uninstall-all" } {
+            $script = Join-Path $PSScriptRoot "uninstall-global.ps1"
+            & $script
+        }
         { $_ -in "wrap", "run" } {
             if ($Message) {
                 traffic yellow "Running: $Message"
@@ -129,9 +145,17 @@ function traffic {
             Write-Host "[Traffic Light] All sessions cleared." -ForegroundColor DarkYellow
         }
         default {
-            Write-Host "Traffic Light CLI Controller" -ForegroundColor Cyan
-            Write-Host "User Commands: traffic on | traffic off" -ForegroundColor Green
-            Write-Host "Automatic Wrapper: traffic wrap '<command>'" -ForegroundColor Yellow
+            Write-Host "🚦 Traffic Light CLI Controller" -ForegroundColor Cyan
+            Write-Host "Session Controls:" -ForegroundColor Yellow
+            Write-Host "  traffic on                        - Activate traffic light session"
+            Write-Host "  traffic off                       - Dismiss traffic light session"
+            Write-Host "  traffic green|yellow|red [msg]    - Update current light state"
+            Write-Host "  traffic wrap '<cmd>'              - Automatically wrap command with traffic states"
+            Write-Host "`nManagement Commands:" -ForegroundColor Yellow
+            Write-Host "  traffic install-project [path]    - Install traffic light for a specific project"
+            Write-Host "  traffic install-global            - Install traffic light globally for all projects"
+            Write-Host "  traffic uninstall-project [path]  - Remove traffic light from a specific project"
+            Write-Host "  traffic uninstall-global          - Completely purge traffic light from the laptop"
         }
     }
 }
