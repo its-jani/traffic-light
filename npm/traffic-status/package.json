@@ -1,0 +1,42 @@
+{
+  "name": "traffic-status",
+  "version": "0.1.0",
+  "description": "Minimalist floating desktop traffic status indicator for AI coding agents",
+  "type": "module",
+  "bin": {
+    "traffic-status": "./bin/traffic-status.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "bin",
+    "README.md",
+    "LICENSE"
+  ],
+  "license": "MIT",
+  "author": "Traffic Status Team",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/its-jani/traffic-status.git"
+  },
+  "homepage": "https://github.com/its-jani/traffic-status#readme",
+  "bugs": {
+    "url": "https://github.com/its-jani/traffic-status/issues"
+  },
+  "keywords": [
+    "traffic-status",
+    "opencode",
+    "claude-code",
+    "ai-agent",
+    "developer-tools",
+    "egui",
+    "desktop-widget"
+  ],
+  "optionalDependencies": {
+    "@its-jani/traffic-status-win32-x64": "0.1.0",
+    "@its-jani/traffic-status-linux-x64": "0.1.0",
+    "@its-jani/traffic-status-darwin-arm64": "0.1.0",
+    "@its-jani/traffic-status-darwin-x64": "0.1.0"
+  }
+}
