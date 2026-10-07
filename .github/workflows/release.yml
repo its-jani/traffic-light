@@ -28,7 +28,7 @@ jobs:
             archive_ext: tar.gz
             platform_id: linux-x64
           - target: x86_64-apple-darwin
-            os: macos-13
+            os: macos-latest
             bin_name: traffic-status
             archive_ext: tar.gz
             platform_id: darwin-x64
@@ -79,7 +79,7 @@ jobs:
             tar -czf "dist/${ARCHIVE_NAME}" -C "target/${{ matrix.target }}/release" "${{ matrix.bin_name }}" -C ../../../ LICENSE README.md
           fi
 
-          # Also stage raw binary for npm packaging
+          # Stage raw binary for npm packaging
           mkdir -p npm-bins/${{ matrix.platform_id }}
           cp "${BIN_PATH}" "npm-bins/${{ matrix.platform_id }}/${{ matrix.bin_name }}"
 
@@ -96,7 +96,7 @@ jobs:
           path: npm-bins/*
 
   publish:
-    name: GitHub Release & npm Publish
+    name: GitHub Release & npm Trusted Publishing
     needs: build-binaries
     runs-on: ubuntu-latest
     permissions:
@@ -145,16 +145,26 @@ jobs:
       - name: Prepare npm platform and main packages
         run: node npm/scripts/prepare.mjs --bin-dir npm-dist-bins
 
-      - name: Publish to npm
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Publish to npm (Trusted Publishing / OIDC)
         run: |
-          # Publish platform packages first
+          # 1. Publish platform packages first
           for pkg in npm/packages/traffic-status-*; do
-            echo "Publishing $pkg..."
-            npm publish "$pkg" --access public --provenance || npm publish "$pkg" --access public
+            PKG_NAME=$(node -e "console.log(JSON.parse(require('fs').readFileSync('$pkg/package.json')).name)")
+            PKG_VER=$(node -e "console.log(JSON.parse(require('fs').readFileSync('$pkg/package.json')).version)")
+            if npm view "$PKG_NAME@$PKG_VER" version >/dev/null 2>&1; then
+              echo "Skipping $PKG_NAME@$PKG_VER (already published)"
+            else
+              echo "Publishing $PKG_NAME@$PKG_VER with provenance..."
+              npm publish "$pkg" --access public --provenance
+            fi
           done
 
-          # Publish main package
-          echo "Publishing main package..."
-          npm publish npm/traffic-status --access public --provenance || npm publish npm/traffic-status --access public
+          # 2. Publish main package
+          MAIN_NAME=$(node -e "console.log(JSON.parse(require('fs').readFileSync('npm/traffic-status/package.json')).name)")
+          MAIN_VER=$(node -e "console.log(JSON.parse(require('fs').readFileSync('npm/traffic-status/package.json')).version)")
+          if npm view "$MAIN_NAME@$MAIN_VER" version >/dev/null 2>&1; then
+            echo "Skipping $MAIN_NAME@$MAIN_VER (already published)"
+          else
+            echo "Publishing $MAIN_NAME@$MAIN_VER with provenance..."
+            npm publish npm/traffic-status --access public --provenance
+          fi
