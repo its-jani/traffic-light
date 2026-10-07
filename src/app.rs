@@ -1,11 +1,11 @@
-use std::collections::HashMap;
-use std::time::{Duration, Instant};
 use crossbeam_channel::Receiver;
 use eframe::egui::{self, Color32, Pos2, Rect, Rounding, Stroke, Vec2};
+use std::collections::HashMap;
+use std::time::{Duration, Instant};
 
 use crate::types::{IpcCommand, LightState, SessionInfo};
 
-pub struct TrafficLightApp {
+pub struct TrafficStatusApp {
     rx: Receiver<IpcCommand>,
     sessions: HashMap<String, SessionInfo>,
     session_order: Vec<String>,
@@ -15,13 +15,17 @@ pub struct TrafficLightApp {
     last_width: f32,
 }
 
-impl TrafficLightApp {
+impl TrafficStatusApp {
     pub fn new(_cc: &eframe::CreationContext<'_>, rx: Receiver<IpcCommand>) -> Self {
         let mut sessions = HashMap::new();
         let default_id = "agent-1".to_string();
         sessions.insert(
             default_id.clone(),
-            SessionInfo::new(default_id.clone(), Some("Session #1".to_string()), Some(LightState::Green)),
+            SessionInfo::new(
+                default_id.clone(),
+                Some("Session #1".to_string()),
+                Some(LightState::Green),
+            ),
         );
 
         Self {
@@ -45,7 +49,10 @@ impl TrafficLightApp {
                     message,
                 } => {
                     // Replace placeholder session if this is the first real session connecting
-                    if self.sessions.len() == 1 && self.sessions.contains_key("agent-1") && session_id != "agent-1" {
+                    if self.sessions.len() == 1
+                        && self.sessions.contains_key("agent-1")
+                        && session_id != "agent-1"
+                    {
                         self.sessions.remove("agent-1");
                         self.session_order.retain(|id| id != "agent-1");
                     }
@@ -75,7 +82,10 @@ impl TrafficLightApp {
                     initial_state,
                 } => {
                     // Replace placeholder session if this is the first real session connecting
-                    if self.sessions.len() == 1 && self.sessions.contains_key("agent-1") && session_id != "agent-1" {
+                    if self.sessions.len() == 1
+                        && self.sessions.contains_key("agent-1")
+                        && session_id != "agent-1"
+                    {
                         self.sessions.remove("agent-1");
                         self.session_order.retain(|id| id != "agent-1");
                     }
@@ -119,11 +129,13 @@ impl TrafficLightApp {
     }
 
     fn has_active_animation(&self) -> bool {
-        self.sessions.values().any(|s| s.state == LightState::Yellow)
+        self.sessions
+            .values()
+            .any(|s| s.state == LightState::Yellow)
     }
 }
 
-impl eframe::App for TrafficLightApp {
+impl eframe::App for TrafficStatusApp {
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
         [0.0, 0.0, 0.0, 0.0]
     }
@@ -132,10 +144,17 @@ impl eframe::App for TrafficLightApp {
         self.process_ipc_events(ctx);
 
         // Dynamically adjust window size if multiple session tabs are present
-        let needed_width = if self.session_order.len() > 1 { 120.0 } else { 88.0 };
+        let needed_width = if self.session_order.len() > 1 {
+            120.0
+        } else {
+            88.0
+        };
         if (needed_width - self.last_width).abs() > 0.5 {
             self.last_width = needed_width;
-            ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(Vec2::new(needed_width, 190.0)));
+            ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(Vec2::new(
+                needed_width,
+                190.0,
+            )));
         }
 
         let now = Instant::now();
@@ -156,7 +175,10 @@ impl eframe::App for TrafficLightApp {
 
         let frame = egui::Frame::none()
             .fill(Color32::from_rgba_unmultiplied(14, 16, 22, 235))
-            .stroke(Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(255, 255, 255, 30)))
+            .stroke(Stroke::new(
+                1.0_f32,
+                Color32::from_rgba_unmultiplied(255, 255, 255, 30),
+            ))
             .rounding(Rounding::same(16.0))
             .inner_margin(egui::Margin::symmetric(6.0, 6.0))
             .shadow(egui::epaint::Shadow {
@@ -169,7 +191,8 @@ impl eframe::App for TrafficLightApp {
         egui::CentralPanel::default().frame(frame).show(ctx, |ui| {
             // Drag entire widget anywhere
             let panel_rect = ui.max_rect();
-            let drag_response = ui.interact(panel_rect, ui.id().with("window_drag"), egui::Sense::drag());
+            let drag_response =
+                ui.interact(panel_rect, ui.id().with("window_drag"), egui::Sense::drag());
             if drag_response.drag_started() {
                 ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
             }
@@ -194,7 +217,7 @@ impl eframe::App for TrafficLightApp {
                             )
                             .frame(false),
                         )
-                        .on_hover_text("Close Traffic Light")
+                        .on_hover_text("Close Traffic Status")
                         .clicked()
                     {
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -210,7 +233,7 @@ impl eframe::App for TrafficLightApp {
                             )
                             .frame(false),
                         )
-                        .on_hover_text("Minimize Traffic Light")
+                        .on_hover_text("Minimize Traffic Status")
                         .clicked()
                     {
                         ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
@@ -236,7 +259,8 @@ impl eframe::App for TrafficLightApp {
                         ui.add_space(2.0);
                         for (idx, session_id) in self.session_order.iter().enumerate() {
                             if let Some(sess) = self.sessions.get(session_id) {
-                                let is_selected = self.active_session_id.as_deref() == Some(session_id);
+                                let is_selected =
+                                    self.active_session_id.as_deref() == Some(session_id);
                                 let tab_dot_color = match sess.state {
                                     LightState::Red => Color32::from_rgb(255, 60, 60),
                                     LightState::Yellow => Color32::from_rgb(255, 210, 40),
@@ -288,10 +312,10 @@ impl eframe::App for TrafficLightApp {
                     ui.add_space(2.0);
                 }
 
-                // Vertical Authentic Traffic Light
+                // Vertical Traffic Light Widget
                 ui.vertical_centered(|ui| {
                     if let Some(session) = &active_session {
-                        render_vertical_traffic_light(ui, session.state, self.pulse_phase);
+                        render_vertical_traffic_status(ui, session.state, self.pulse_phase);
 
                         // Minimal tooltip info on hover
                         let elapsed = session.last_updated.elapsed().as_secs();
@@ -301,7 +325,10 @@ impl eframe::App for TrafficLightApp {
                             format!("{}m ago", elapsed / 60)
                         };
 
-                        let status_text = session.message.as_deref().unwrap_or(session.state.display_name());
+                        let status_text = session
+                            .message
+                            .as_deref()
+                            .unwrap_or(session.state.display_name());
                         ui.label(
                             egui::RichText::new(format!("• {status_text}"))
                                 .size(9.5)
@@ -312,10 +339,13 @@ impl eframe::App for TrafficLightApp {
                                     LightState::Off => Color32::from_rgb(110, 120, 135),
                                 }),
                         )
-                        .on_hover_text(format!("Session: {}\nUpdated: {}", session.label, time_str));
+                        .on_hover_text(format!(
+                            "Session: {}\nUpdated: {}",
+                            session.label, time_str
+                        ));
                     } else {
                         // Empty / standby state
-                        render_vertical_traffic_light(ui, LightState::Off, 0.0);
+                        render_vertical_traffic_status(ui, LightState::Off, 0.0);
                         ui.label(
                             egui::RichText::new("Standby")
                                 .size(9.0)
@@ -328,8 +358,8 @@ impl eframe::App for TrafficLightApp {
     }
 }
 
-/// Renders the authentic vertical traffic light with hooded visors and rich glow
-fn render_vertical_traffic_light(ui: &mut egui::Ui, state: LightState, pulse_phase: f32) {
+/// Renders the vertical traffic status widget with hooded visors and rich glow
+fn render_vertical_traffic_status(ui: &mut egui::Ui, state: LightState, pulse_phase: f32) {
     let bulb_radius = 9.0;
     let bulb_diameter = bulb_radius * 2.0;
     let spacing = 7.0;
@@ -346,7 +376,7 @@ fn render_vertical_traffic_light(ui: &mut egui::Ui, state: LightState, pulse_pha
 
     let painter = ui.painter_at(rect);
 
-    // Physical Traffic Light Bezel Housing (Obsidian Dark with Beveled Edge)
+    // Housing (Obsidian Dark with Beveled Edge)
     painter.rect_filled(
         rect,
         Rounding::same(bulb_radius + 4.0),
@@ -362,12 +392,12 @@ fn render_vertical_traffic_light(ui: &mut egui::Ui, state: LightState, pulse_pha
     let start_y = rect.min.y + padding_y + bulb_radius;
 
     let centers = [
-        Pos2::new(center_x, start_y),                               // RED (Top)
-        Pos2::new(center_x, start_y + bulb_diameter + spacing),     // YELLOW (Middle)
+        Pos2::new(center_x, start_y),                           // RED (Top)
+        Pos2::new(center_x, start_y + bulb_diameter + spacing), // YELLOW (Middle)
         Pos2::new(center_x, start_y + (bulb_diameter + spacing) * 2.0), // GREEN (Bottom)
     ];
 
-    // Draw Hood Visors above each lamp for realistic traffic light look
+    // Draw Hood Visors above each lamp
     for &c in &centers {
         let hood_rect = Rect::from_min_max(
             Pos2::new(c.x - bulb_radius - 2.0, c.y - bulb_radius - 3.0),
@@ -382,7 +412,7 @@ fn render_vertical_traffic_light(ui: &mut egui::Ui, state: LightState, pulse_pha
 
     // 1. Draw RED bulb (Top)
     let is_red = state == LightState::Red;
-    draw_traffic_bulb(
+    draw_bulb(
         &painter,
         centers[0],
         bulb_radius,
@@ -400,7 +430,7 @@ fn render_vertical_traffic_light(ui: &mut egui::Ui, state: LightState, pulse_pha
     } else {
         0.0
     };
-    draw_traffic_bulb(
+    draw_bulb(
         &painter,
         centers[1],
         bulb_radius,
@@ -413,7 +443,7 @@ fn render_vertical_traffic_light(ui: &mut egui::Ui, state: LightState, pulse_pha
 
     // 3. Draw GREEN bulb (Bottom)
     let is_green = state == LightState::Green;
-    draw_traffic_bulb(
+    draw_bulb(
         &painter,
         centers[2],
         bulb_radius,
@@ -433,9 +463,8 @@ fn render_vertical_traffic_light(ui: &mut egui::Ui, state: LightState, pulse_pha
     });
 }
 
-/// Helper function to draw an individual traffic light bulb with glass lens highlights and glowing neon halos
 #[allow(clippy::too_many_arguments)]
-fn draw_traffic_bulb(
+fn draw_bulb(
     painter: &egui::Painter,
     center: Pos2,
     radius: f32,
@@ -446,7 +475,7 @@ fn draw_traffic_bulb(
     pulse_intensity: f32,
 ) {
     if is_active {
-        // Outer diffuse bloom halo (Layer 1)
+        // Outer diffuse bloom halo
         let glow_rad_1 = radius * (2.1 + pulse_intensity * 0.4);
         painter.circle_filled(
             center,
@@ -459,7 +488,7 @@ fn draw_traffic_bulb(
             ),
         );
 
-        // Mid glow halo (Layer 2)
+        // Mid glow halo
         let glow_rad_2 = radius * (1.5 + pulse_intensity * 0.25);
         painter.circle_filled(
             center,
@@ -497,7 +526,7 @@ fn draw_traffic_bulb(
             Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(255, 255, 255, 190)),
         );
     } else {
-        // Unlit bulb - dark translucent glass with subtle rim
+        // Unlit bulb
         painter.circle_filled(center, radius, unlit_color);
         painter.circle_stroke(
             center,
@@ -505,7 +534,6 @@ fn draw_traffic_bulb(
             Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(255, 255, 255, 18)),
         );
 
-        // Subtle specular highlight on dark glass
         let glint_pos = Pos2::new(center.x - radius * 0.25, center.y - radius * 0.28);
         painter.circle_filled(
             glint_pos,

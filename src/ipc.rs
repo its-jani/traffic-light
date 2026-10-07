@@ -1,14 +1,18 @@
-use std::collections::HashMap;
 use crossbeam_channel::Sender;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
 use crate::types::{IpcCommand, IpcPayload, LightState};
 
-pub async fn start_ipc_server(port: u16, tx: Sender<IpcCommand>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+const MAX_REQUEST_SIZE: usize = 65536; // 64 KB limit
+
+pub async fn start_ipc_server(
+    port: u16,
+    tx: Sender<IpcCommand>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let addr = format!("127.0.0.1:{}", port);
     let listener = TcpListener::bind(&addr).await?;
-    println!("[Traffic Light IPC] Listening for session updates on http://{}", addr);
+    println!("[Traffic Status] IPC Server listening on http://{}", addr);
 
     loop {
         match listener.accept().await {
@@ -16,13 +20,12 @@ pub async fn start_ipc_server(port: u16, tx: Sender<IpcCommand>) -> Result<(), B
                 let tx_clone = tx.clone();
                 tokio::spawn(async move {
                     if let Err(e) = handle_connection(&mut socket, tx_clone).await {
-                        // ignore brief disconnect errors
                         let _ = e;
                     }
                 });
             }
             Err(e) => {
-                eprintln!("[Traffic Light IPC] Accept error: {e}");
+                eprintln!("[Traffic Status] Accept error: {e}");
             }
         }
     }
@@ -32,19 +35,30 @@ async fn handle_connection(
     socket: &mut TcpStream,
     tx: Sender<IpcCommand>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let mut buf = vec![0u8; 8192];
+    let mut buf = vec![0u8; MAX_REQUEST_SIZE];
     let n = socket.read(&mut buf).await?;
     if n == 0 {
         return Ok(());
     }
 
+    if n >= MAX_REQUEST_SIZE {
+        let resp = "HTTP/1.1 413 Payload Too Large\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"error\":\"Payload too large\"}";
+        socket.write_all(resp.as_bytes()).await?;
+        let _ = socket.flush().await;
+        let _ = socket.shutdown().await;
+        return Ok(());
+    }
+
     let raw_text = String::from_utf8_lossy(&buf[..n]);
 
-    // Check if it's an HTTP request
-    if raw_text.starts_with("GET ") || raw_text.starts_with("POST ") || raw_text.starts_with("PUT ") || raw_text.starts_with("DELETE ") || raw_text.starts_with("OPTIONS ") {
+    if raw_text.starts_with("GET ")
+        || raw_text.starts_with("POST ")
+        || raw_text.starts_with("PUT ")
+        || raw_text.starts_with("DELETE ")
+        || raw_text.starts_with("OPTIONS ")
+    {
         handle_http_request(socket, &raw_text, tx).await?;
     } else {
-        // Raw JSON or command line
         handle_raw_payload(socket, &raw_text, tx).await?;
     }
 
@@ -61,10 +75,13 @@ async fn handle_http_request(
     let parts: Vec<&str> = first_line.split_whitespace().collect();
 
     if parts.len() < 2 {
-        let resp = "HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
-        socket.write_all(resp.as_bytes()).await?;
-        let _ = socket.flush().await;
-        let _ = socket.shutdown().await;
+        send_response(
+            socket,
+            "400 Bad Request",
+            "application/json",
+            r#"{"error":"Invalid HTTP request"}"#,
+        )
+        .await?;
         return Ok(());
     }
 
@@ -72,21 +89,86 @@ async fn handle_http_request(
     let full_path = parts[1];
 
     if method == "OPTIONS" {
-        let resp = "HTTP/1.1 204 No Content\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: POST, GET, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type\r\nConnection: close\r\n\r\n";
+        let resp = "HTTP/1.1 204 No Content\r\nAccess-Control-Allow-Methods: POST, GET, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type\r\nConnection: close\r\n\r\n";
         socket.write_all(resp.as_bytes()).await?;
         let _ = socket.flush().await;
         let _ = socket.shutdown().await;
         return Ok(());
     }
 
-    let (path, query_str) = match full_path.find('?') {
+    let (path, _query_str) = match full_path.find('?') {
         Some(idx) => (&full_path[..idx], &full_path[idx + 1..]),
         None => (full_path, ""),
     };
 
-    let query_params = parse_query_string(query_str);
+    // Health / Ping endpoint (GET only)
+    if path == "/health" || path == "/ping" {
+        if method != "GET" {
+            send_response(
+                socket,
+                "405 Method Not Allowed",
+                "application/json",
+                r#"{"error":"Use GET for /ping"}"#,
+            )
+            .await?;
+            return Ok(());
+        }
+        let body = format!(
+            r#"{{"status":"ok","app":"traffic-status","version":"{}"}}"#,
+            env!("CARGO_PKG_VERSION")
+        );
+        send_response(socket, "200 OK", "application/json", &body).await?;
+        return Ok(());
+    }
 
-    // Extract HTTP body if POST/PUT
+    // State mutating endpoints REQUIRE POST method
+    let is_mutation_endpoint = path == "/state"
+        || path == "/session/on"
+        || path == "/on"
+        || path == "/session/off"
+        || path == "/off"
+        || path == "/clear";
+
+    if is_mutation_endpoint && method != "POST" {
+        send_response(
+            socket,
+            "405 Method Not Allowed",
+            "application/json",
+            r#"{"error":"State-modifying requests must use POST with Content-Type: application/json"}"#,
+        )
+        .await?;
+        return Ok(());
+    }
+
+    if !is_mutation_endpoint {
+        send_response(
+            socket,
+            "404 Not Found",
+            "application/json",
+            r#"{"error":"Not Found"}"#,
+        )
+        .await?;
+        return Ok(());
+    }
+
+    // Verify Content-Type header on POST
+    let has_json_header = lines.clone().any(|line| {
+        let lower = line.to_ascii_lowercase();
+        lower.starts_with("content-type:") && lower.contains("application/json")
+    });
+
+    if !has_json_header {
+        send_response(
+            socket,
+            "415 Unsupported Media Type",
+            "application/json",
+            r#"{"error":"Content-Type must be application/json"}"#,
+        )
+        .await?;
+        return Ok(());
+    }
+
+    // Extract HTTP body
     let body = match raw_text.find("\r\n\r\n") {
         Some(idx) => &raw_text[idx + 4..],
         None => match raw_text.find("\n\n") {
@@ -95,16 +177,8 @@ async fn handle_http_request(
         },
     };
 
-    let mut payload: IpcPayload = if !body.trim().is_empty() {
-        serde_json::from_str(body.trim()).unwrap_or(IpcPayload {
-            session_id: None,
-            id: None,
-            state: None,
-            label: None,
-            message: None,
-            action: None,
-        })
-    } else {
+    let trimmed_body = body.trim();
+    let payload: IpcPayload = if trimmed_body.is_empty() {
         IpcPayload {
             session_id: None,
             id: None,
@@ -113,64 +187,82 @@ async fn handle_http_request(
             message: None,
             action: None,
         }
+    } else {
+        match serde_json::from_str::<IpcPayload>(trimmed_body) {
+            Ok(p) => p,
+            Err(e) => {
+                let err_msg = format!(r#"{{"error":"Malformed JSON: {}"}}"#, e);
+                send_response(socket, "400 Bad Request", "application/json", &err_msg).await?;
+                return Ok(());
+            }
+        }
     };
 
-    // Overlay query parameters if provided
-    if let Some(session_id) = query_params.get("session_id").or_else(|| query_params.get("id")) {
-        payload.session_id = Some(session_id.to_string());
-    }
-    if let Some(state) = query_params.get("state") {
-        payload.state = Some(state.to_string());
-    }
-    if let Some(label) = query_params.get("label") {
-        payload.label = Some(label.to_string());
-    }
-    if let Some(msg) = query_params.get("message").or_else(|| query_params.get("msg")) {
-        payload.message = Some(msg.to_string());
-    }
-    if let Some(action) = query_params.get("action") {
-        payload.action = Some(action.to_string());
-    }
-
-    let session_id = payload.session_id.or(payload.id).unwrap_or_else(|| "default".to_string());
+    let session_id = payload
+        .session_id
+        .or(payload.id)
+        .unwrap_or_else(|| "default".to_string());
     let action = payload.action.unwrap_or_default().to_lowercase();
 
-    let response_body = if path == "/health" || path == "/ping" {
-        r#"{"status":"ok","app":"traffic-light"}"#.to_string()
-    } else if path == "/session/on" || path == "/on" || action == "on" {
+    let response_body = if path == "/session/on" || path == "/on" || action == "on" {
         let initial_state = payload.state.as_deref().and_then(LightState::parse_str);
         let _ = tx.send(IpcCommand::SessionOn {
             session_id: session_id.clone(),
             label: payload.label,
             initial_state,
         });
-        format!(r#"{{"status":"ok","session_id":"{}","action":"on"}}"#, session_id)
+        format!(
+            r#"{{"status":"ok","session_id":"{}","action":"on"}}"#,
+            session_id
+        )
     } else if path == "/session/off" || path == "/off" || action == "off" || action == "remove" {
         let _ = tx.send(IpcCommand::SessionOff {
             session_id: session_id.clone(),
         });
-        format!(r#"{{"status":"ok","session_id":"{}","action":"off"}}"#, session_id)
+        format!(
+            r#"{{"status":"ok","session_id":"{}","action":"off"}}"#,
+            session_id
+        )
     } else if path == "/clear" || action == "clear" {
         let _ = tx.send(IpcCommand::ClearAll);
         r#"{"status":"ok","action":"clear_all"}"#.to_string()
     } else {
-        // Default to state update
-        let state = payload.state.as_deref().and_then(LightState::parse_str).unwrap_or(LightState::Green);
+        // State update endpoint: POST /state
+        let state = payload
+            .state
+            .as_deref()
+            .and_then(LightState::parse_str)
+            .unwrap_or(LightState::Green);
         let _ = tx.send(IpcCommand::SetState {
             session_id: session_id.clone(),
             state,
             label: payload.label,
             message: payload.message,
         });
-        format!(r#"{{"status":"ok","session_id":"{}","state":"{}"}}"#, session_id, state.display_name())
+        format!(
+            r#"{{"status":"ok","session_id":"{}","state":"{}"}}"#,
+            session_id,
+            state.display_name()
+        )
     };
 
-    let response = format!(
-        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-        response_body.len(),
-        response_body
-    );
+    send_response(socket, "200 OK", "application/json", &response_body).await?;
+    Ok(())
+}
 
+async fn send_response(
+    socket: &mut TcpStream,
+    status: &str,
+    content_type: &str,
+    body: &str,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let response = format!(
+        "HTTP/1.1 {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        status,
+        content_type,
+        body.len(),
+        body
+    );
     socket.write_all(response.as_bytes()).await?;
     let _ = socket.flush().await;
     let _ = socket.shutdown().await;
@@ -188,7 +280,10 @@ async fn handle_raw_payload(
     }
 
     if let Ok(payload) = serde_json::from_str::<IpcPayload>(text) {
-        let session_id = payload.session_id.or(payload.id).unwrap_or_else(|| "default".to_string());
+        let session_id = payload
+            .session_id
+            .or(payload.id)
+            .unwrap_or_else(|| "default".to_string());
         let action = payload.action.unwrap_or_default().to_lowercase();
 
         if action == "off" || action == "remove" {
@@ -203,7 +298,11 @@ async fn handle_raw_payload(
         } else if action == "clear" {
             let _ = tx.send(IpcCommand::ClearAll);
         } else {
-            let state = payload.state.as_deref().and_then(LightState::parse_str).unwrap_or(LightState::Green);
+            let state = payload
+                .state
+                .as_deref()
+                .and_then(LightState::parse_str)
+                .unwrap_or(LightState::Green);
             let _ = tx.send(IpcCommand::SetState {
                 session_id,
                 state,
@@ -240,56 +339,4 @@ async fn handle_raw_payload(
     }
 
     Ok(())
-}
-
-fn parse_query_string(qs: &str) -> HashMap<String, String> {
-    let mut map = HashMap::new();
-    for pair in qs.split('&') {
-        if pair.is_empty() {
-            continue;
-        }
-        let mut kv = pair.splitn(2, '=');
-        if let Some(key) = kv.next() {
-            let val = kv.next().unwrap_or("");
-            map.insert(
-                url_decode(key),
-                url_decode(val),
-            );
-        }
-    }
-    map
-}
-
-fn url_decode(s: &str) -> String {
-    let mut bytes = Vec::with_capacity(s.len());
-    let mut chars = s.chars().peekable();
-    while let Some(ch) = chars.next() {
-        if ch == '%' {
-            let mut hex = String::with_capacity(2);
-            if let Some(&c1) = chars.peek() {
-                if c1.is_ascii_hexdigit() {
-                    hex.push(chars.next().unwrap());
-                    if let Some(&c2) = chars.peek() {
-                        if c2.is_ascii_hexdigit() {
-                            hex.push(chars.next().unwrap());
-                        }
-                    }
-                }
-            }
-            if hex.len() == 2 {
-                if let Ok(byte) = u8::from_str_radix(&hex, 16) {
-                    bytes.push(byte);
-                    continue;
-                }
-            }
-            bytes.push(b'%');
-            bytes.extend_from_slice(hex.as_bytes());
-        } else if ch == '+' {
-            bytes.push(b' ');
-        } else {
-            let mut buf = [0u8; 4];
-            bytes.extend_from_slice(ch.encode_utf8(&mut buf).as_bytes());
-        }
-    }
-    String::from_utf8_lossy(&bytes).to_string()
 }

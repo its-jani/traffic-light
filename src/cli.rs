@@ -1,5 +1,11 @@
 use std::fs;
+use std::io::{Read, Write};
+use std::net::TcpStream;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
+
+pub const MARKER_MD: &str = "<!-- generated-by: traffic-status -->";
+pub const MARKER_JS: &str = "// generated-by: traffic-status";
 
 pub fn handle_cli_args(args: &[String]) -> bool {
     if args.len() <= 1 {
@@ -9,40 +15,63 @@ pub fn handle_cli_args(args: &[String]) -> bool {
     match args[1].as_str() {
         "install" => {
             let is_global = args.iter().any(|a| a == "--global" || a == "-g");
+            let dry_run = args.iter().any(|a| a == "--dry-run");
+            let force = args.iter().any(|a| a == "--force" || a == "-f");
             let project_idx = args.iter().position(|a| a == "--project" || a == "-p");
-            
+
             if is_global {
-                install_global();
+                install_global(dry_run, force);
             } else if let Some(idx) = project_idx {
                 let path = args.get(idx + 1).map(|s| s.as_str()).unwrap_or(".");
-                install_project(Path::new(path));
-            } else if args.len() > 2 {
-                install_project(Path::new(&args[2]));
+                install_project(Path::new(path), dry_run, force);
+            } else if args.len() > 2 && !args[2].starts_with('-') {
+                install_project(Path::new(&args[2]), dry_run, force);
             } else {
-                install_project(Path::new("."));
+                install_project(Path::new("."), dry_run, force);
             }
             true
         }
         "uninstall" => {
-            let is_global = args.iter().any(|a| a == "--global" || a == "-g" || a == "--all");
+            let is_global = args
+                .iter()
+                .any(|a| a == "--global" || a == "-g" || a == "--all");
+            let dry_run = args.iter().any(|a| a == "--dry-run");
+            let force = args.iter().any(|a| a == "--force" || a == "-f");
             let project_idx = args.iter().position(|a| a == "--project" || a == "-p");
 
             if is_global {
-                uninstall_global();
+                uninstall_global(dry_run, force);
             } else if let Some(idx) = project_idx {
                 let path = args.get(idx + 1).map(|s| s.as_str()).unwrap_or(".");
-                uninstall_project(Path::new(path));
-            } else if args.len() > 2 {
-                uninstall_project(Path::new(&args[2]));
+                uninstall_project(Path::new(path), dry_run, force);
+            } else if args.len() > 2 && !args[2].starts_with('-') {
+                uninstall_project(Path::new(&args[2]), dry_run, force);
             } else {
-                uninstall_project(Path::new("."));
+                uninstall_project(Path::new("."), dry_run, force);
             }
             true
         }
-        "on" | "off" | "state" | "green" | "yellow" | "red" => {
-            let action = &args[1];
+        "doctor" => {
+            run_doctor();
+            true
+        }
+        "on" => {
+            let label = args.get(2).map(|s| s.as_str()).unwrap_or("CLI-Session");
+            send_quick_command("on", label);
+            true
+        }
+        "off" => {
+            send_quick_command("off", "");
+            true
+        }
+        "green" | "yellow" | "red" => {
+            let state = &args[1];
             let msg = args.get(2).map(|s| s.as_str()).unwrap_or("");
-            send_quick_command(action, msg);
+            send_quick_command(state, msg);
+            true
+        }
+        "clear" => {
+            send_quick_command("clear", "");
             true
         }
         "--help" | "-h" | "help" => {
@@ -50,11 +79,11 @@ pub fn handle_cli_args(args: &[String]) -> bool {
             true
         }
         "--version" | "-v" => {
-            println!("traffic-light v{}", env!("CARGO_PKG_VERSION"));
+            println!("traffic-status v{}", env!("CARGO_PKG_VERSION"));
             true
         }
-        "run" | "gui" => {
-            false // Launch GUI app
+        "run" | "gui" | "daemon" => {
+            false // Handled by main.rs
         }
         _ => {
             eprintln!("Unknown command: '{}'", args[1]);
@@ -65,69 +94,323 @@ pub fn handle_cli_args(args: &[String]) -> bool {
 }
 
 fn print_help() {
-    println!("🚦 Traffic Light v{}", env!("CARGO_PKG_VERSION"));
+    println!("🚦 Traffic Status v{}", env!("CARGO_PKG_VERSION"));
     println!("A lightweight floating desktop traffic light for AI coding agents.\n");
     println!("USAGE:");
-    println!("  traffic-light                           Launch the floating traffic light UI");
-    println!("  traffic-light install --project [PATH]  Install commands into a specific project");
-    println!("  traffic-light install --global          Install globally for all current and future projects");
-    println!("  traffic-light uninstall --project [PATH] Remove from a specific project");
-    println!("  traffic-light uninstall --global        Completely remove all traces from this machine");
-    println!("  traffic-light on [LABEL]                Activate session");
-    println!("  traffic-light off                       Dismiss session");
-    println!("  traffic-light <green|yellow|red> [MSG]  Update status light");
-    println!("  traffic-light --help                    Show this help message");
+    println!("  traffic-status                           Launch the floating traffic status UI");
+    println!("  traffic-status install --global          Install globally for all current and future projects");
+    println!("  traffic-status install --project [PATH]  Install commands into a specific project");
+    println!("  traffic-status uninstall --global        Remove global hooks & stable binary");
+    println!("  traffic-status uninstall --project [PATH] Remove hooks from a specific project");
+    println!(
+        "  traffic-status doctor                    Diagnose installation, hooks, and port status"
+    );
+    println!("  traffic-status on [LABEL]                Activate session");
+    println!("  traffic-status off                       Dismiss session");
+    println!("  traffic-status <green|yellow|red> [MSG]  Update status light");
+    println!("  traffic-status clear                     Clear all active sessions");
+    println!("  traffic-status --help                    Show this help message");
+    println!("  traffic-status --version                 Print version");
+    println!("\nFLAGS:");
+    println!("  --dry-run                                Preview changes without modifying files");
+    println!(
+        "  --force, -f                              Overwrite files even if marker is missing"
+    );
 }
 
-fn install_project(target: &Path) {
+pub fn has_our_marker(content: &str) -> bool {
+    content.contains("generated-by: traffic-status")
+        || content.contains("Traffic Light Slash Command (/traffic)")
+        || content.contains("Traffic Light Command (/traffic)")
+        || content.contains("TrafficLightPlugin")
+        || content.contains("TrafficStatusPlugin")
+        || content.contains("generated-by: traffic-light")
+}
+
+pub fn get_home_dir() -> Option<PathBuf> {
+    if let Ok(p) = std::env::var("USERPROFILE") {
+        if !p.is_empty() {
+            return Some(PathBuf::from(p));
+        }
+    }
+    if let Ok(p) = std::env::var("HOME") {
+        if !p.is_empty() {
+            return Some(PathBuf::from(p));
+        }
+    }
+    dirs::home_dir()
+}
+
+pub fn get_stable_bin_dir() -> Option<PathBuf> {
+    if cfg!(windows) {
+        if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
+            if !local_app_data.is_empty() {
+                return Some(
+                    PathBuf::from(local_app_data)
+                        .join("traffic-status")
+                        .join("bin"),
+                );
+            }
+        }
+        dirs::data_local_dir().map(|d| d.join("traffic-status").join("bin"))
+    } else {
+        if let Some(home) = get_home_dir() {
+            return Some(
+                home.join(".local")
+                    .join("share")
+                    .join("traffic-status")
+                    .join("bin"),
+            );
+        }
+        dirs::data_dir().map(|d| d.join("traffic-status").join("bin"))
+    }
+}
+
+pub fn get_stable_bin_path() -> Option<PathBuf> {
+    let bin_name = if cfg!(windows) {
+        "traffic-status.exe"
+    } else {
+        "traffic-status"
+    };
+    get_stable_bin_dir().map(|d| d.join(bin_name))
+}
+
+fn copy_self_to_stable_location(dry_run: bool) {
+    let current_exe = match std::env::current_exe() {
+        Ok(p) => p,
+        Err(_) => return,
+    };
+
+    let target_path = match get_stable_bin_path() {
+        Some(p) => p,
+        None => return,
+    };
+
+    // If already running from stable path, skip
+    if let (Ok(c), Ok(t)) = (current_exe.canonicalize(), target_path.canonicalize()) {
+        if c == t {
+            println!(
+                "  ℹ️ Already running from stable location: {}",
+                target_path.display()
+            );
+            return;
+        }
+    }
+
+    let target_dir = match target_path.parent() {
+        Some(d) => d,
+        None => return,
+    };
+
+    if dry_run {
+        println!(
+            "  [dry-run] Would copy binary to: {}",
+            target_path.display()
+        );
+        return;
+    }
+
+    if let Err(e) = fs::create_dir_all(target_dir) {
+        eprintln!(
+            "  ⚠️ Could not create stable binary directory {}: {e}",
+            target_dir.display()
+        );
+        return;
+    }
+
+    match fs::copy(&current_exe, &target_path) {
+        Ok(_) => {
+            println!(
+                "  ✅ Copied native binary to stable path: {}",
+                target_path.display()
+            );
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = fs::set_permissions(&target_path, fs::Permissions::from_mode(0o755));
+            }
+        }
+        Err(e) => {
+            eprintln!(
+                "  ⚠️ Could not copy binary to {}: {e}",
+                target_path.display()
+            );
+        }
+    }
+}
+
+pub fn safe_write_file(
+    path: &Path,
+    content: &str,
+    dry_run: bool,
+    force: bool,
+) -> Result<bool, String> {
+    if path.exists() {
+        match fs::read_to_string(path) {
+            Ok(existing) => {
+                if !force && !has_our_marker(&existing) {
+                    return Err(format!(
+                        "File '{}' exists and was not created by traffic-status. Use --force to overwrite.",
+                        path.display()
+                    ));
+                }
+                if existing == content {
+                    // Already up to date
+                    return Ok(false);
+                }
+            }
+            Err(e) => {
+                if !force {
+                    return Err(format!(
+                        "Could not read existing file '{}': {e}",
+                        path.display()
+                    ));
+                }
+            }
+        }
+    }
+
+    if dry_run {
+        println!("  [dry-run] Would write: {}", path.display());
+        return Ok(true);
+    }
+
+    if let Some(parent) = path.parent() {
+        if let Err(e) = fs::create_dir_all(parent) {
+            return Err(format!(
+                "Failed to create directory '{}': {e}",
+                parent.display()
+            ));
+        }
+    }
+
+    if let Err(e) = fs::write(path, content) {
+        return Err(format!("Failed to write '{}': {e}", path.display()));
+    }
+
+    Ok(true)
+}
+
+pub fn safe_remove_file(path: &Path, dry_run: bool, force: bool) -> Result<bool, String> {
+    if !path.exists() {
+        return Ok(false);
+    }
+
+    if !force {
+        match fs::read_to_string(path) {
+            Ok(content) => {
+                if !has_our_marker(&content) {
+                    return Err(format!(
+                        "Skipping '{}': file does not contain traffic-status marker.",
+                        path.display()
+                    ));
+                }
+            }
+            Err(e) => {
+                return Err(format!("Could not read file '{}': {e}", path.display()));
+            }
+        }
+    }
+
+    if dry_run {
+        println!("  [dry-run] Would remove: {}", path.display());
+        return Ok(true);
+    }
+
+    if let Err(e) = fs::remove_file(path) {
+        return Err(format!("Failed to remove '{}': {e}", path.display()));
+    }
+
+    Ok(true)
+}
+
+pub fn safe_remove_empty_dir(dir: &Path, dry_run: bool) {
+    if !dir.exists() || !dir.is_dir() {
+        return;
+    }
+
+    if let Ok(mut entries) = fs::read_dir(dir) {
+        if entries.next().is_none() {
+            if dry_run {
+                println!(
+                    "  [dry-run] Would remove empty directory: {}",
+                    dir.display()
+                );
+            } else {
+                let _ = fs::remove_dir(dir);
+            }
+        }
+    }
+}
+
+pub fn install_project(target: &Path, dry_run: bool, force: bool) {
     let target_dir = if target.is_relative() {
-        std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")).join(target)
+        std::env::current_dir()
+            .unwrap_or_else(|_| PathBuf::from("."))
+            .join(target)
     } else {
         target.to_path_buf()
     };
 
-    println!("🚦 Installing Traffic Light into project: {}", target_dir.display());
+    println!(
+        "🚦 Installing Traffic Status into project: {}",
+        target_dir.display()
+    );
 
     let claude_cmd_content = include_str!("../.claude/commands/traffic.md");
     let opencode_cmd_content = include_str!("../.opencode/commands/traffic.md");
-    let opencode_plugin_content = include_str!("../.opencode/plugins/traffic-light.js");
+    let opencode_plugin_content = include_str!("../.opencode/plugins/traffic-status.js");
 
     // 1. Claude Code
-    let claude_dir = target_dir.join(".claude").join("commands");
-    if let Err(e) = fs::create_dir_all(&claude_dir) {
-        eprintln!("  ❌ Failed to create {}: {e}", claude_dir.display());
-    } else if let Err(e) = fs::write(claude_dir.join("traffic.md"), claude_cmd_content) {
-        eprintln!("  ❌ Failed to write claude command: {e}");
-    } else {
-        println!("  ✅ Created .claude/commands/traffic.md");
+    let claude_file = target_dir
+        .join(".claude")
+        .join("commands")
+        .join("traffic.md");
+    match safe_write_file(&claude_file, claude_cmd_content, dry_run, force) {
+        Ok(true) => println!("  ✅ Installed .claude/commands/traffic.md"),
+        Ok(false) => println!("  ℹ️ .claude/commands/traffic.md is already up to date"),
+        Err(e) => eprintln!("  ❌ {e}"),
     }
 
     // 2. OpenCode
-    let opencode_cmd_dir = target_dir.join(".opencode").join("commands");
-    let opencode_plugin_dir = target_dir.join(".opencode").join("plugins");
+    let opencode_cmd = target_dir
+        .join(".opencode")
+        .join("commands")
+        .join("traffic.md");
+    let opencode_plugin = target_dir
+        .join(".opencode")
+        .join("plugins")
+        .join("traffic-status.js");
 
-    let _ = fs::create_dir_all(&opencode_cmd_dir);
-    let _ = fs::create_dir_all(&opencode_plugin_dir);
-
-    if let Err(e) = fs::write(opencode_cmd_dir.join("traffic.md"), opencode_cmd_content) {
-        eprintln!("  ❌ Failed to write opencode command: {e}");
-    } else {
-        println!("  ✅ Created .opencode/commands/traffic.md");
+    match safe_write_file(&opencode_cmd, opencode_cmd_content, dry_run, force) {
+        Ok(true) => println!("  ✅ Installed .opencode/commands/traffic.md"),
+        Ok(false) => println!("  ℹ️ .opencode/commands/traffic.md is already up to date"),
+        Err(e) => eprintln!("  ❌ {e}"),
     }
 
-    if let Err(e) = fs::write(opencode_plugin_dir.join("traffic-light.js"), opencode_plugin_content) {
-        eprintln!("  ❌ Failed to write opencode plugin: {e}");
-    } else {
-        println!("  ✅ Created .opencode/plugins/traffic-light.js");
+    match safe_write_file(&opencode_plugin, opencode_plugin_content, dry_run, force) {
+        Ok(true) => println!("  ✅ Installed .opencode/plugins/traffic-status.js"),
+        Ok(false) => println!("  ℹ️ .opencode/plugins/traffic-status.js is already up to date"),
+        Err(e) => eprintln!("  ❌ {e}"),
     }
 
-    println!("\n✨ Project installation complete! (Scope: {})", target_dir.display());
+    // Clean legacy project files if present
+    let old_plugin = target_dir
+        .join(".opencode")
+        .join("plugins")
+        .join("traffic-light.js");
+    let _ = safe_remove_file(&old_plugin, dry_run, false);
+
+    println!(
+        "\n✨ Project installation complete! (Scope: {})",
+        target_dir.display()
+    );
 }
 
-fn install_global() {
-    println!("🚦 Installing Traffic Light globally (All Projects)...");
+pub fn install_global(dry_run: bool, force: bool) {
+    println!("🚦 Installing Traffic Status globally (All Projects)...");
 
-    let home = match dirs_home() {
+    let home = match get_home_dir() {
         Some(h) => h,
         None => {
             eprintln!("❌ Unable to determine home directory.");
@@ -135,68 +418,147 @@ fn install_global() {
         }
     };
 
+    // Copy binary to stable per-user location
+    copy_self_to_stable_location(dry_run);
+
     let claude_cmd_content = include_str!("../.claude/commands/traffic.md");
     let opencode_cmd_content = include_str!("../.opencode/commands/traffic.md");
-    let opencode_plugin_content = include_str!("../.opencode/plugins/traffic-light.js");
+    let opencode_plugin_content = include_str!("../.opencode/plugins/traffic-status.js");
 
-    // 1. Global Claude Code (~/.claude/commands)
-    let global_claude = home.join(".claude").join("commands");
-    let _ = fs::create_dir_all(&global_claude);
-    if let Ok(_) = fs::write(global_claude.join("traffic.md"), claude_cmd_content) {
-        println!("  ✅ Global Claude Code command installed: {}", global_claude.join("traffic.md").display());
+    // 1. Global Claude Code (~/.claude/commands/traffic.md)
+    let global_claude = home.join(".claude").join("commands").join("traffic.md");
+    match safe_write_file(&global_claude, claude_cmd_content, dry_run, force) {
+        Ok(true) => println!(
+            "  ✅ Global Claude Code command installed: {}",
+            global_claude.display()
+        ),
+        Ok(false) => println!("  ℹ️ Global Claude Code command is already up to date"),
+        Err(e) => eprintln!("  ❌ {e}"),
     }
 
     // 2. Global OpenCode (~/.config/opencode and ~/.opencode)
-    let targets = [home.join(".config").join("opencode"), home.join(".opencode")];
+    let targets = [
+        home.join(".config").join("opencode"),
+        home.join(".opencode"),
+    ];
     for base in &targets {
-        let cmd_dir = base.join("commands");
-        let plugin_dir = base.join("plugins");
-        let _ = fs::create_dir_all(&cmd_dir);
-        let _ = fs::create_dir_all(&plugin_dir);
+        let cmd_file = base.join("commands").join("traffic.md");
+        let plugin_file = base.join("plugins").join("traffic-status.js");
 
-        let _ = fs::write(cmd_dir.join("traffic.md"), opencode_cmd_content);
-        let _ = fs::write(plugin_dir.join("traffic-light.js"), opencode_plugin_content);
-        println!("  ✅ Global OpenCode configs installed in: {}", base.display());
+        match safe_write_file(&cmd_file, opencode_cmd_content, dry_run, force) {
+            Ok(true) => println!(
+                "  ✅ Global OpenCode command installed: {}",
+                cmd_file.display()
+            ),
+            Ok(false) => println!(
+                "  ℹ️ Global OpenCode command is up to date: {}",
+                cmd_file.display()
+            ),
+            Err(e) => eprintln!("  ❌ {e}"),
+        }
+
+        match safe_write_file(&plugin_file, opencode_plugin_content, dry_run, force) {
+            Ok(true) => println!(
+                "  ✅ Global OpenCode plugin installed: {}",
+                plugin_file.display()
+            ),
+            Ok(false) => println!(
+                "  ℹ️ Global OpenCode plugin is up to date: {}",
+                plugin_file.display()
+            ),
+            Err(e) => eprintln!("  ❌ {e}"),
+        }
+
+        // Clean legacy files in global opencode
+        let old_plugin = base.join("plugins").join("traffic-light.js");
+        let _ = safe_remove_file(&old_plugin, dry_run, false);
     }
+
+    // Clean legacy binary if present and marked
+    clean_legacy_installations(dry_run);
 
     println!("\n🎉 Global Installation Complete!");
     println!("Scope: Machine-Wide (Current & Future Projects)");
 }
 
-fn uninstall_project(target: &Path) {
+pub fn uninstall_project(target: &Path, dry_run: bool, force: bool) {
     let target_dir = if target.is_relative() {
-        std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")).join(target)
+        std::env::current_dir()
+            .unwrap_or_else(|_| PathBuf::from("."))
+            .join(target)
     } else {
         target.to_path_buf()
     };
 
-    println!("🗑️  Removing Traffic Light from project: {}", target_dir.display());
+    println!(
+        "🗑️  Removing Traffic Status from project: {}",
+        target_dir.display()
+    );
 
-    let claude_file = target_dir.join(".claude").join("commands").join("traffic.md");
+    let claude_file = target_dir
+        .join(".claude")
+        .join("commands")
+        .join("traffic.md");
     if claude_file.exists() {
-        let _ = fs::remove_file(claude_file);
-        println!("  🗑️  Removed .claude/commands/traffic.md");
+        match safe_remove_file(&claude_file, dry_run, force) {
+            Ok(true) => {
+                println!("  🗑️  Removed .claude/commands/traffic.md");
+                safe_remove_empty_dir(&target_dir.join(".claude").join("commands"), dry_run);
+                safe_remove_empty_dir(&target_dir.join(".claude"), dry_run);
+            }
+            Ok(false) => {}
+            Err(e) => eprintln!("  ⚠️ {e}"),
+        }
     }
 
-    let opencode_cmd = target_dir.join(".opencode").join("commands").join("traffic.md");
+    let opencode_cmd = target_dir
+        .join(".opencode")
+        .join("commands")
+        .join("traffic.md");
     if opencode_cmd.exists() {
-        let _ = fs::remove_file(opencode_cmd);
-        println!("  🗑️  Removed .opencode/commands/traffic.md");
+        match safe_remove_file(&opencode_cmd, dry_run, force) {
+            Ok(true) => {
+                println!("  🗑️  Removed .opencode/commands/traffic.md");
+                safe_remove_empty_dir(&target_dir.join(".opencode").join("commands"), dry_run);
+            }
+            Ok(false) => {}
+            Err(e) => eprintln!("  ⚠️ {e}"),
+        }
     }
 
-    let opencode_plugin = target_dir.join(".opencode").join("plugins").join("traffic-light.js");
+    let opencode_plugin = target_dir
+        .join(".opencode")
+        .join("plugins")
+        .join("traffic-status.js");
     if opencode_plugin.exists() {
-        let _ = fs::remove_file(opencode_plugin);
-        println!("  🗑️  Removed .opencode/plugins/traffic-light.js");
+        match safe_remove_file(&opencode_plugin, dry_run, force) {
+            Ok(true) => {
+                println!("  🗑️  Removed .opencode/plugins/traffic-status.js");
+                safe_remove_empty_dir(&target_dir.join(".opencode").join("plugins"), dry_run);
+            }
+            Ok(false) => {}
+            Err(e) => eprintln!("  ⚠️ {e}"),
+        }
     }
+
+    // Remove legacy plugin if any
+    let old_plugin = target_dir
+        .join(".opencode")
+        .join("plugins")
+        .join("traffic-light.js");
+    if old_plugin.exists() {
+        let _ = safe_remove_file(&old_plugin, dry_run, force);
+    }
+
+    safe_remove_empty_dir(&target_dir.join(".opencode"), dry_run);
 
     println!("\n✅ Removed from project: {}", target_dir.display());
 }
 
-fn uninstall_global() {
-    println!("🚨 Purging Traffic Light completely from laptop...");
+pub fn uninstall_global(dry_run: bool, force: bool) {
+    println!("🗑️  Removing Traffic Status globally...");
 
-    let home = match dirs_home() {
+    let home = match get_home_dir() {
         Some(h) => h,
         None => {
             eprintln!("❌ Unable to determine home directory.");
@@ -204,59 +566,381 @@ fn uninstall_global() {
         }
     };
 
-    // Remove Claude global
+    // 1. Remove Claude global command
     let global_claude = home.join(".claude").join("commands").join("traffic.md");
     if global_claude.exists() {
-        let _ = fs::remove_file(global_claude);
-        println!("  🗑️  Removed global Claude Code commands");
+        match safe_remove_file(&global_claude, dry_run, force) {
+            Ok(true) => {
+                println!("  🗑️  Removed global Claude Code command");
+                safe_remove_empty_dir(&home.join(".claude").join("commands"), dry_run);
+            }
+            Ok(false) => {}
+            Err(e) => eprintln!("  ⚠️ {e}"),
+        }
     }
 
-    // Remove OpenCode globals
-    let targets = [home.join(".config").join("opencode"), home.join(".opencode")];
+    // 2. Remove OpenCode global configs (individual files only!)
+    let targets = [
+        home.join(".config").join("opencode"),
+        home.join(".opencode"),
+    ];
     for base in &targets {
         let cmd = base.join("commands").join("traffic.md");
-        let plugin = base.join("plugins").join("traffic-light.js");
-        if cmd.exists() { let _ = fs::remove_file(cmd); }
-        if plugin.exists() { let _ = fs::remove_file(plugin); }
-        println!("  🗑️  Cleaned {}", base.display());
+        let plugin = base.join("plugins").join("traffic-status.js");
+        let old_plugin = base.join("plugins").join("traffic-light.js");
+
+        if cmd.exists() {
+            let _ = safe_remove_file(&cmd, dry_run, force);
+            safe_remove_empty_dir(&base.join("commands"), dry_run);
+        }
+        if plugin.exists() {
+            let _ = safe_remove_file(&plugin, dry_run, force);
+            safe_remove_empty_dir(&base.join("plugins"), dry_run);
+        }
+        if old_plugin.exists() {
+            let _ = safe_remove_file(&old_plugin, dry_run, force);
+            safe_remove_empty_dir(&base.join("plugins"), dry_run);
+        }
+        safe_remove_empty_dir(base, dry_run);
+        println!(
+            "  🗑️  Cleaned Traffic Status entries from {}",
+            base.display()
+        );
     }
 
-    // Remove cargo binary if present
-    let cargo_bin = home.join(".cargo").join("bin").join(if cfg!(windows) { "traffic-light.exe" } else { "traffic-light" });
-    if cargo_bin.exists() {
-        let _ = fs::remove_file(cargo_bin);
-        println!("  🗑️  Removed binary from ~/.cargo/bin");
+    // 3. Remove stable binary
+    if let Some(stable_bin) = get_stable_bin_path() {
+        if stable_bin.exists() {
+            if dry_run {
+                println!("  [dry-run] Would remove binary: {}", stable_bin.display());
+            } else {
+                let _ = fs::remove_file(&stable_bin);
+                println!("  🗑️  Removed binary from {}", stable_bin.display());
+                if let Some(parent) = stable_bin.parent() {
+                    safe_remove_empty_dir(parent, dry_run);
+                    if let Some(grandparent) = parent.parent() {
+                        safe_remove_empty_dir(grandparent, dry_run);
+                    }
+                }
+            }
+        }
     }
 
-    println!("\n✨ Traffic Light has been completely purged from your system.");
+    // 4. Legacy cleanups
+    clean_legacy_installations(dry_run);
+
+    println!("\n✨ Traffic Status global uninstallation complete.");
 }
 
-fn dirs_home() -> Option<PathBuf> {
-    if let Ok(p) = std::env::var("USERPROFILE") {
-        return Some(PathBuf::from(p));
+fn clean_legacy_installations(dry_run: bool) {
+    if let Some(home) = get_home_dir() {
+        // Old cargo binary
+        let old_cargo_bin = home.join(".cargo").join("bin").join(if cfg!(windows) {
+            "traffic-light.exe"
+        } else {
+            "traffic-light"
+        });
+        if old_cargo_bin.exists() {
+            if dry_run {
+                println!(
+                    "  [dry-run] Would remove legacy binary: {}",
+                    old_cargo_bin.display()
+                );
+            } else {
+                let _ = fs::remove_file(&old_cargo_bin);
+                println!(
+                    "  🗑️  Removed legacy binary from {}",
+                    old_cargo_bin.display()
+                );
+            }
+        }
     }
-    if let Ok(p) = std::env::var("HOME") {
-        return Some(PathBuf::from(p));
-    }
-    None
 }
 
-fn send_quick_command(action: &str, msg: &str) {
-    let url = match action {
+pub fn get_configured_port() -> u16 {
+    std::env::var("TRAFFIC_STATUS_PORT")
+        .ok()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(8765)
+}
+
+pub fn is_daemon_alive(port: u16) -> bool {
+    let addr = format!("127.0.0.1:{}", port);
+    let mut stream = match TcpStream::connect_timeout(
+        &addr
+            .parse()
+            .unwrap_or_else(|_| "127.0.0.1:8765".parse().unwrap()),
+        Duration::from_millis(300),
+    ) {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+
+    let _ = stream.set_read_timeout(Some(Duration::from_millis(500)));
+    let _ = stream.set_write_timeout(Some(Duration::from_millis(500)));
+
+    let req = format!(
+        "GET /ping HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nConnection: close\r\n\r\n",
+        port
+    );
+    if stream.write_all(req.as_bytes()).is_err() {
+        return false;
+    }
+
+    let mut response = Vec::new();
+    let _ = stream.read_to_end(&mut response);
+    let resp_str = String::from_utf8_lossy(&response);
+    resp_str.contains("HTTP/1.1 200")
+        && (resp_str.contains("traffic-status") || resp_str.contains("traffic-light"))
+}
+
+pub fn ensure_daemon_running() -> bool {
+    let port = get_configured_port();
+    if is_daemon_alive(port) {
+        return true;
+    }
+
+    // Locate candidate executables
+    let mut candidates = Vec::new();
+    if let Ok(cur) = std::env::current_exe() {
+        candidates.push(cur);
+    }
+    if let Some(stable) = get_stable_bin_path() {
+        candidates.push(stable);
+    }
+    if let Some(home) = get_home_dir() {
+        let bin_name = if cfg!(windows) {
+            "traffic-status.exe"
+        } else {
+            "traffic-status"
+        };
+        candidates.push(home.join(".cargo").join("bin").join(bin_name));
+    }
+
+    for exe in candidates {
+        if !exe.exists() {
+            continue;
+        }
+
+        let mut cmd = std::process::Command::new(&exe);
+        cmd.arg("daemon");
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        }
+        cmd.stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+
+        if cmd.spawn().is_ok() {
+            // Poll for daemon readiness
+            for _ in 0..15 {
+                std::thread::sleep(Duration::from_millis(100));
+                if is_daemon_alive(port) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    false
+}
+
+pub fn send_quick_command(action: &str, msg: &str) {
+    let port = get_configured_port();
+    let (endpoint, payload) = match action {
         "on" => {
             let label = if msg.is_empty() { "CLI-Session" } else { msg };
-            format!("http://127.0.0.1:8765/session/on?session_id=cli-session&label={label}&state=green")
+            (
+                "/session/on",
+                format!(
+                    r#"{{"session_id":"cli-session","label":"{}","state":"green"}}"#,
+                    label
+                ),
+            )
         }
-        "off" => "http://127.0.0.1:8765/session/off?session_id=cli-session".to_string(),
-        "green" | "yellow" | "red" => {
-            format!("http://127.0.0.1:8765/state?session_id=cli-session&state={action}&message={msg}")
-        }
+        "off" => (
+            "/session/off",
+            r#"{"session_id":"cli-session"}"#.to_string(),
+        ),
+        "clear" => ("/clear", "{}".to_string()),
+        "green" | "yellow" | "red" => (
+            "/state",
+            format!(
+                r#"{{"session_id":"cli-session","state":"{}","message":"{}"}}"#,
+                action, msg
+            ),
+        ),
         _ => return,
     };
 
-    println!("📡 Sending request: {url}");
-    // Use std::net or tokio or curl fallback
-    let _ = std::process::Command::new("curl.exe")
-        .args(["-s", &url])
-        .output();
+    if !ensure_daemon_running() {
+        eprintln!("⚠️ Unable to start or reach Traffic Status daemon on port {port}.");
+        return;
+    }
+
+    let addr = format!("127.0.0.1:{}", port);
+    let mut stream = match TcpStream::connect_timeout(
+        &addr
+            .parse()
+            .unwrap_or_else(|_| "127.0.0.1:8765".parse().unwrap()),
+        Duration::from_millis(1000),
+    ) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("❌ Failed to connect to daemon: {e}");
+            return;
+        }
+    };
+
+    let _ = stream.set_read_timeout(Some(Duration::from_millis(1000)));
+    let req = format!(
+        "POST {} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        endpoint,
+        port,
+        payload.len(),
+        payload
+    );
+
+    if let Err(e) = stream.write_all(req.as_bytes()) {
+        eprintln!("❌ Failed to send command: {e}");
+        return;
+    }
+
+    let mut response = Vec::new();
+    let _ = stream.read_to_end(&mut response);
+    let resp_str = String::from_utf8_lossy(&response);
+
+    if resp_str.contains("HTTP/1.1 200") {
+        println!("✨ Traffic Status [{action}] updated successfully.");
+    } else {
+        eprintln!(
+            "⚠️ Daemon returned non-200 response: {}",
+            resp_str.lines().next().unwrap_or("")
+        );
+    }
+}
+
+pub fn run_doctor() {
+    let mut has_errors = false;
+    println!("🩺 Traffic Status Diagnostics");
+    println!("=============================");
+
+    // 1. Version & Executable
+    println!(
+        "• Version:     traffic-status v{}",
+        env!("CARGO_PKG_VERSION")
+    );
+    if let Ok(exe) = std::env::current_exe() {
+        println!("• Binary Path: {}", exe.display());
+    }
+
+    // 2. Stable per-user binary
+    if let Some(stable) = get_stable_bin_path() {
+        if stable.exists() {
+            println!("• Stable Binary: Installed ({})", stable.display());
+        } else {
+            println!("• Stable Binary: Not installed ({})", stable.display());
+        }
+    }
+
+    // 3. PATH check
+    let bin_name = if cfg!(windows) {
+        "traffic-status.exe"
+    } else {
+        "traffic-status"
+    };
+    let on_path = is_on_path(bin_name);
+    if on_path {
+        println!("• PATH Status:   'traffic-status' found on PATH");
+    } else {
+        println!("• PATH Status:   'traffic-status' NOT found on PATH (hooks will use stable per-user binary)");
+    }
+
+    // 4. Daemon & Port
+    let port = get_configured_port();
+    println!("• Config Port:   {port} (TRAFFIC_STATUS_PORT)");
+    if is_daemon_alive(port) {
+        println!("• Daemon:        Running and responding on http://127.0.0.1:{port}");
+    } else {
+        // Test if port is available
+        match std::net::TcpListener::bind(format!("127.0.0.1:{port}")) {
+            Ok(_) => println!("• Daemon:        Not running (port {port} is free)"),
+            Err(e) => {
+                println!("• Daemon:        Port {port} is occupied by another process: {e}");
+                has_errors = true;
+            }
+        }
+    }
+
+    // 5. Hooks Check
+    if let Some(home) = get_home_dir() {
+        let global_claude = home.join(".claude").join("commands").join("traffic.md");
+        if global_claude.exists() {
+            if let Ok(content) = fs::read_to_string(&global_claude) {
+                if has_our_marker(&content) {
+                    println!(
+                        "• Global Claude: Installed & Verified ({})",
+                        global_claude.display()
+                    );
+                } else {
+                    println!(
+                        "• Global Claude: Present but missing marker ({})",
+                        global_claude.display()
+                    );
+                }
+            }
+        } else {
+            println!("• Global Claude: Not installed");
+        }
+
+        let opencode_targets = [
+            home.join(".config").join("opencode"),
+            home.join(".opencode"),
+        ];
+        let mut opencode_installed = false;
+        for base in &opencode_targets {
+            let cmd = base.join("commands").join("traffic.md");
+            let plugin = base.join("plugins").join("traffic-status.js");
+            if cmd.exists() || plugin.exists() {
+                opencode_installed = true;
+                println!("• Global OpenCode: Found in {}", base.display());
+            }
+        }
+        if !opencode_installed {
+            println!("• Global OpenCode: Not installed");
+        }
+    }
+
+    // 6. OS & Session Info
+    println!(
+        "• OS / Arch:     {} / {}",
+        std::env::consts::OS,
+        std::env::consts::ARCH
+    );
+    #[cfg(unix)]
+    {
+        if let Ok(session_type) = std::env::var("XDG_SESSION_TYPE") {
+            println!("• Session Type:  {session_type}");
+            if session_type.to_lowercase() == "wayland" {
+                println!("  ⚠️ Wayland detected: compositor may limit 'always-on-top' behavior. Run with WINIT_UNIX_BACKEND=x11 if needed.");
+            }
+        }
+    }
+
+    if has_errors {
+        std::process::exit(1);
+    }
+}
+
+fn is_on_path(bin_name: &str) -> bool {
+    if let Ok(path_var) = std::env::var("PATH") {
+        for dir in std::env::split_paths(&path_var) {
+            if dir.join(bin_name).exists() {
+                return true;
+            }
+        }
+    }
+    false
 }

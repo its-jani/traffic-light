@@ -1,12 +1,12 @@
-pub mod types;
-pub mod ipc;
 pub mod app;
 pub mod cli;
+pub mod ipc;
+pub mod types;
 
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use eframe::egui;
 
-use crate::app::TrafficLightApp;
+use crate::app::TrafficStatusApp;
 use crate::cli::handle_cli_args;
 use crate::ipc::start_ipc_server;
 use crate::types::IpcCommand;
@@ -17,10 +17,20 @@ fn main() -> eframe::Result<()> {
         return Ok(());
     }
 
+    let port: u16 = std::env::var("TRAFFIC_STATUS_PORT")
+        .ok()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(8765);
+
+    // Test if already running before opening window
+    if cli::is_daemon_alive(port) {
+        println!("🚦 Traffic Status daemon is already running on port {port}.");
+        return Ok(());
+    }
+
     let (tx, rx): (Sender<IpcCommand>, Receiver<IpcCommand>) = unbounded();
 
     // Start background Tokio IPC server
-    let default_port = 8765;
     let server_tx = tx.clone();
     std::thread::Builder::new()
         .name("ipc-server".to_string())
@@ -31,8 +41,8 @@ fn main() -> eframe::Result<()> {
                 .build()
                 .expect("Failed to create Tokio runtime");
             rt.block_on(async move {
-                if let Err(e) = start_ipc_server(default_port, server_tx).await {
-                    eprintln!("[Traffic Light] IPC Server error: {e}");
+                if let Err(e) = start_ipc_server(port, server_tx).await {
+                    eprintln!("[Traffic Status] IPC Server error on port {port}: {e}");
                 }
             });
         })
@@ -46,13 +56,13 @@ fn main() -> eframe::Result<()> {
             .with_transparent(true)
             .with_decorations(false)
             .with_always_on_top()
-            .with_title("Traffic Light"),
+            .with_title("Traffic Status"),
         ..Default::default()
     };
 
     eframe::run_native(
-        "Traffic Light",
+        "Traffic Status",
         native_options,
-        Box::new(|cc| Ok(Box::new(TrafficLightApp::new(cc, rx)))),
+        Box::new(|cc| Ok(Box::new(TrafficStatusApp::new(cc, rx)))),
     )
 }

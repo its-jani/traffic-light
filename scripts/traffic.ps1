@@ -1,46 +1,53 @@
 <#
 .SYNOPSIS
-    Traffic Light CLI integration for PowerShell (OpenCode / Claude Code / Windows Terminal).
+    Traffic Status CLI integration for PowerShell (OpenCode / Claude Code / Windows Terminal).
 #>
 
-$global:TrafficPort = 8765
+$global:TrafficPort = if ($env:TRAFFIC_STATUS_PORT) { $env:TRAFFIC_STATUS_PORT } else { 8765 }
 $global:TrafficHost = "127.0.0.1"
 $global:TrafficSessionId = if ($env:TRAFFIC_SESSION_ID) { $env:TRAFFIC_SESSION_ID } else { "session-$PID" }
 
-function Test-TrafficLightRunning {
+function Test-TrafficStatusRunning {
     $url = "http://${global:TrafficHost}:${global:TrafficPort}/ping"
     try {
         $res = Invoke-RestMethod -Uri $url -Method Get -TimeoutSec 1 -ErrorAction Stop
-        return $true
+        return ($res.status -eq "ok")
     } catch {
         return $false
     }
 }
 
-function Ensure-TrafficLightDaemon {
-    if (Test-TrafficLightRunning) {
+function Ensure-TrafficStatusDaemon {
+    if (Test-TrafficStatusRunning) {
         return $true
     }
     # Check PATH first
-    $cmd = Get-Command "traffic-light" -ErrorAction SilentlyContinue
+    $cmd = Get-Command "traffic-status" -ErrorAction SilentlyContinue
     if ($cmd) {
         Start-Process -FilePath $cmd.Source -WindowStyle Hidden
         Start-Sleep -Milliseconds 450
-        return (Test-TrafficLightRunning)
+        return (Test-TrafficStatusRunning)
+    }
+    # Check stable bin
+    $stableBin = Join-Path $env:LOCALAPPDATA "traffic-status\bin\traffic-status.exe"
+    if (Test-Path $stableBin) {
+        Start-Process -FilePath $stableBin -WindowStyle Hidden
+        Start-Sleep -Milliseconds 450
+        return (Test-TrafficStatusRunning)
     }
     # Check Cargo bin
-    $cargoBin = Join-Path $env:USERPROFILE ".cargo\bin\traffic-light.exe"
+    $cargoBin = Join-Path $env:USERPROFILE ".cargo\bin\traffic-status.exe"
     if (Test-Path $cargoBin) {
         Start-Process -FilePath $cargoBin -WindowStyle Hidden
         Start-Sleep -Milliseconds 450
-        return (Test-TrafficLightRunning)
+        return (Test-TrafficStatusRunning)
     }
     # Check local target folder
-    $localBin = Join-Path $PSScriptRoot "..\target\release\traffic-light.exe"
+    $localBin = Join-Path $PSScriptRoot "..\target\release\traffic-status.exe"
     if (Test-Path $localBin) {
         Start-Process -FilePath $localBin -WindowStyle Hidden
         Start-Sleep -Milliseconds 450
-        return (Test-TrafficLightRunning)
+        return (Test-TrafficStatusRunning)
     }
     return $false
 }
@@ -55,7 +62,7 @@ function Send-TrafficCommand {
         $json = $Body | ConvertTo-Json -Compress
         Invoke-RestMethod -Uri $url -Method Post -Body $json -ContentType "application/json" -TimeoutSec 1 | Out-Null
     } catch {
-        # Silently fail if traffic-light is not running
+        # Silently fail if traffic-status is not running
     }
 }
 
@@ -71,19 +78,19 @@ function traffic {
 
     switch ($Action.ToLower()) {
         "on" {
-            Ensure-TrafficLightDaemon | Out-Null
+            Ensure-TrafficStatusDaemon | Out-Null
             Send-TrafficCommand -Endpoint "/session/on" -Body @{
                 session_id = $SessionId
                 label = if ($Message) { $Message } else { "Session ($PID)" }
                 state = "green"
             }
-            Write-Host "[Traffic Light] Session '$SessionId' ON (Green)" -ForegroundColor Green
+            Write-Host "[Traffic Status] Session '$SessionId' ON (Green)" -ForegroundColor Green
         }
         "off" {
             Send-TrafficCommand -Endpoint "/session/off" -Body @{
                 session_id = $SessionId
             }
-            Write-Host "[Traffic Light] Session '$SessionId' OFF" -ForegroundColor DarkGray
+            Write-Host "[Traffic Status] Session '$SessionId' OFF" -ForegroundColor DarkGray
         }
         "yellow" {
             $msg = if ($Message) { $Message } else { "Thinking / Generating..." }
@@ -142,23 +149,20 @@ function traffic {
         }
         "clear" {
             Send-TrafficCommand -Endpoint "/clear" -Body @{}
-            Write-Host "[Traffic Light] All sessions cleared." -ForegroundColor DarkYellow
+            Write-Host "[Traffic Status] All sessions cleared." -ForegroundColor DarkYellow
         }
         default {
-            Write-Host "🚦 Traffic Light CLI Controller" -ForegroundColor Cyan
+            Write-Host "🚦 Traffic Status CLI Controller" -ForegroundColor Cyan
             Write-Host "Session Controls:" -ForegroundColor Yellow
-            Write-Host "  traffic on                        - Activate traffic light session"
-            Write-Host "  traffic off                       - Dismiss traffic light session"
-            Write-Host "  traffic green|yellow|red [msg]    - Update current light state"
+            Write-Host "  traffic on                        - Activate traffic status session"
+            Write-Host "  traffic off                       - Dismiss traffic status session"
+            Write-Host "  traffic green|yellow|red [msg]    - Update current status light"
             Write-Host "  traffic wrap '<cmd>'              - Automatically wrap command with traffic states"
             Write-Host "`nManagement Commands:" -ForegroundColor Yellow
-            Write-Host "  traffic install-project [path]    - Install traffic light for a specific project"
-            Write-Host "  traffic install-global            - Install traffic light globally for all projects"
-            Write-Host "  traffic uninstall-project [path]  - Remove traffic light from a specific project"
-            Write-Host "  traffic uninstall-global          - Completely purge traffic light from the laptop"
+            Write-Host "  traffic install-project [path]    - Install traffic status for a specific project"
+            Write-Host "  traffic install-global            - Install traffic status globally for all projects"
+            Write-Host "  traffic uninstall-project [path]  - Remove traffic status from a specific project"
+            Write-Host "  traffic uninstall-global          - Remove traffic status from the machine"
         }
     }
 }
-
-# Short alias /dr
-Set-Alias -Name dr -Value traffic -Scope Global

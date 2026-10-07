@@ -1,6 +1,6 @@
 # ==============================================================================
-# Traffic Light - Single Project Uninstaller (PowerShell)
-# Removes Traffic Light slash commands & hooks strictly from one specified project.
+# Traffic Status - Single Project Uninstaller (PowerShell)
+# Removes Traffic Status slash commands & hooks strictly from one specified project.
 # ==============================================================================
 param(
     [Parameter(Position=0)]
@@ -13,30 +13,37 @@ if (-not (Test-Path $ProjectPath)) {
 }
 $targetDir = (Resolve-Path $ProjectPath).Path
 
-Write-Host "🗑️  Removing Traffic Light from project: $targetDir" -ForegroundColor Cyan
+Write-Host "🗑️  Removing Traffic Status from project: $targetDir" -ForegroundColor Cyan
 
-# 1. Remove Claude Code command
+# 1. Remove Claude Code command if marked
 $claudeFile = Join-Path $targetDir ".claude\commands\traffic.md"
 if (Test-Path $claudeFile) {
-    Remove-Item -Path $claudeFile -Force
-    Write-Host "  🗑️  Removed .claude/commands/traffic.md" -ForegroundColor DarkYellow
+    $content = Get-Content $claudeFile -Raw -ErrorAction SilentlyContinue
+    if ($content -match "traffic-status" -or $content -match "traffic-light") {
+        Remove-Item -Path $claudeFile -Force
+        Write-Host "  🗑️  Removed .claude/commands/traffic.md" -ForegroundColor DarkYellow
+    }
     $claudeDir = Join-Path $targetDir ".claude\commands"
-    if ((Get-ChildItem -Path $claudeDir -Force | Measure-Object).Count -eq 0) {
+    if ((Test-Path $claudeDir) -and (Get-ChildItem -Path $claudeDir -Force | Measure-Object).Count -eq 0) {
         Remove-Item -Path $claudeDir -Force -Recurse -ErrorAction SilentlyContinue
     }
 }
 
-# 2. Remove OpenCode command & plugin
+# 2. Remove OpenCode command & plugin if marked
 $opencodeCmd = Join-Path $targetDir ".opencode\commands\traffic.md"
-$opencodePlugin = Join-Path $targetDir ".opencode\plugins\traffic-light.js"
+$opencodePlugin = Join-Path $targetDir ".opencode\plugins\traffic-status.js"
+$oldPlugin = Join-Path $targetDir ".opencode\plugins\traffic-light.js"
 
 if (Test-Path $opencodeCmd) {
-    Remove-Item -Path $opencodeCmd -Force
+    Remove-Item -Path $opencodeCmd -Force -ErrorAction SilentlyContinue
     Write-Host "  🗑️  Removed .opencode/commands/traffic.md" -ForegroundColor DarkYellow
 }
 if (Test-Path $opencodePlugin) {
-    Remove-Item -Path $opencodePlugin -Force
-    Write-Host "  🗑️  Removed .opencode/plugins/traffic-light.js" -ForegroundColor DarkYellow
+    Remove-Item -Path $opencodePlugin -Force -ErrorAction SilentlyContinue
+    Write-Host "  🗑️  Removed .opencode/plugins/traffic-status.js" -ForegroundColor DarkYellow
+}
+if (Test-Path $oldPlugin) {
+    Remove-Item -Path $oldPlugin -Force -ErrorAction SilentlyContinue
 }
 
 # Clean empty directories if any
@@ -48,6 +55,10 @@ if ((Test-Path $opencodeCmdDir) -and (Get-ChildItem -Path $opencodeCmdDir -Force
 if ((Test-Path $opencodePluginDir) -and (Get-ChildItem -Path $opencodePluginDir -Force | Measure-Object).Count -eq 0) {
     Remove-Item -Path $opencodePluginDir -Force -Recurse -ErrorAction SilentlyContinue
 }
+$opencodeDir = Join-Path $targetDir ".opencode"
+if ((Test-Path $opencodeDir) -and (Get-ChildItem -Path $opencodeDir -Force | Measure-Object).Count -eq 0) {
+    Remove-Item -Path $opencodeDir -Force -Recurse -ErrorAction SilentlyContinue
+}
 
 Write-Host "`n✅ Project uninstallation complete!" -ForegroundColor Green
-Write-Host "Traffic Light has been removed from $targetDir." -ForegroundColor DarkGray
+Write-Host "Traffic Status has been removed from $targetDir." -ForegroundColor DarkGray

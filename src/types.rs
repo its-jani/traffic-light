@@ -13,9 +13,13 @@ pub enum LightState {
 impl LightState {
     pub fn parse_str(s: &str) -> Option<Self> {
         match s.to_lowercase().trim() {
-            "green" | "idle" | "ready" | "done" | "success" | "ok" | "pass" | "completed" => Some(Self::Green),
-            "yellow" | "working" | "thinking" | "generating" | "busy" | "running" | "in_progress" | "warn" | "warning" => Some(Self::Yellow),
-            "red" | "error" | "halted" | "needs_input" | "input" | "blocked" | "failed" | "fail" | "stop" | "waiting" | "review" => Some(Self::Red),
+            "green" | "idle" | "ready" | "done" | "success" | "ok" | "pass" | "completed" => {
+                Some(Self::Green)
+            }
+            "yellow" | "working" | "thinking" | "generating" | "busy" | "running"
+            | "in_progress" | "warn" | "warning" => Some(Self::Yellow),
+            "red" | "error" | "halted" | "needs_input" | "input" | "blocked" | "failed"
+            | "fail" | "stop" | "waiting" | "review" => Some(Self::Red),
             "off" | "dim" | "standby" | "inactive" => Some(Self::Off),
             _ => None,
         }

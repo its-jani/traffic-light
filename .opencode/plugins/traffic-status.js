@@ -1,14 +1,18 @@
+// generated-by: traffic-status
 import { tool } from "@opencode-ai/plugin";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 
+const PORT = process.env.TRAFFIC_STATUS_PORT || "8765";
+const BASE_URL = `http://127.0.0.1:${PORT}`;
+
 async function isDaemonRunning() {
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 350);
-    const res = await fetch("http://127.0.0.1:8765/ping", { signal: controller.signal });
+    const res = await fetch(`${BASE_URL}/ping`, { signal: controller.signal });
     clearTimeout(timeout);
     return res.ok;
   } catch {
@@ -16,29 +20,34 @@ async function isDaemonRunning() {
   }
 }
 
+function getCandidateBinPaths() {
+  const isWin = os.platform() === "win32";
+  const binName = isWin ? "traffic-status.exe" : "traffic-status";
+  const candidates = [
+    binName,
+    isWin
+      ? path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local"), "traffic-status", "bin", binName)
+      : path.join(os.homedir(), ".local", "share", "traffic-status", "bin", binName),
+    path.join(os.homedir(), ".cargo", "bin", binName),
+  ];
+  return candidates;
+}
+
 async function ensureDaemonRunning() {
   if (await isDaemonRunning()) return true;
 
-  const candidates = [
-    "traffic-light",
-    path.join(os.homedir(), ".cargo", "bin", "traffic-light.exe"),
-    path.join(process.cwd(), "target", "release", "traffic-light.exe"),
-    path.join(process.cwd(), "target", "debug", "traffic-light.exe"),
-    "d:\\traffic-light\\target\\release\\traffic-light.exe",
-  ];
-
+  const candidates = getCandidateBinPaths();
   for (const bin of candidates) {
     try {
       if (bin.includes(path.sep) && !fs.existsSync(bin)) continue;
-      const child = spawn(bin, [], {
+      const child = spawn(bin, ["daemon"], {
         detached: true,
         stdio: "ignore",
-        windowsHide: false,
+        windowsHide: true,
       });
       child.unref();
 
-      // Poll until port 8765 is responsive
-      for (let i = 0; i < 15; i++) {
+      for (let i = 0; i < 20; i++) {
         await new Promise((r) => setTimeout(r, 100));
         if (await isDaemonRunning()) return true;
       }
@@ -54,7 +63,7 @@ async function sendTrafficPayload(endpoint, body, autoStart = false) {
     if (autoStart) {
       await ensureDaemonRunning();
     }
-    const res = await fetch(`http://127.0.0.1:8765${endpoint}`, {
+    const res = await fetch(`${BASE_URL}${endpoint}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -63,7 +72,7 @@ async function sendTrafficPayload(endpoint, body, autoStart = false) {
   } catch (e) {
     if (!autoStart && (await ensureDaemonRunning())) {
       try {
-        const retryRes = await fetch(`http://127.0.0.1:8765${endpoint}`, {
+        const retryRes = await fetch(`${BASE_URL}${endpoint}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
@@ -80,11 +89,11 @@ async function sendTrafficPayload(endpoint, body, autoStart = false) {
 let isSessionActive = true;
 let activeSessionId = "opencode-agent";
 
-export const TrafficLightPlugin = async (_ctx) => {
+export const TrafficStatusPlugin = async (_ctx) => {
   return {
     tool: {
       traffic: tool({
-        description: "Control floating desktop traffic light (on, off, green, yellow, red)",
+        description: "Control floating desktop traffic status indicator (on, off, green, yellow, red)",
         args: {
           action: tool.schema.enum(["on", "off", "green", "yellow", "red"]).describe("Action to perform"),
           message: tool.schema.string().optional().describe("Status message to display"),
@@ -102,15 +111,15 @@ export const TrafficLightPlugin = async (_ctx) => {
               true
             );
             return ok
-              ? "Traffic Light activated (Green) 🟢"
-              : "Failed to connect to Traffic Light daemon. Ensure traffic-light is installed.";
+              ? "Traffic Status activated (Green) 🟢"
+              : "Failed to connect to Traffic Status daemon. Ensure traffic-status is installed.";
           }
           if (args.action === "off") {
             isSessionActive = false;
             await sendTrafficPayload("/session/off", {
               session_id: activeSessionId,
             });
-            return "Traffic Light dismissed ⚪";
+            return "Traffic Status dismissed ⚪";
           }
           if (isSessionActive) {
             await sendTrafficPayload("/state", {
@@ -119,7 +128,7 @@ export const TrafficLightPlugin = async (_ctx) => {
               message: args.message || "",
             });
           }
-          return `Traffic Light state set to ${args.action}`;
+          return `Traffic Status state set to ${args.action}`;
         },
       }),
     },
@@ -169,4 +178,4 @@ export const TrafficLightPlugin = async (_ctx) => {
   };
 };
 
-export default TrafficLightPlugin;
+export default TrafficStatusPlugin;
