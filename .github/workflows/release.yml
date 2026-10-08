@@ -133,6 +133,9 @@ jobs:
     needs: [build-binaries, create-release]
     if: vars.NPM_PUBLISH == 'true'
     runs-on: ubuntu-latest
+    # Trusted publisher config on npmjs.com must point at this exact workflow
+    # filename (release.yml). Per npm docs, trusted publishing requires
+    # npm CLI >= 11.5.1 and Node >= 22.14.0.
     permissions:
       contents: read
       id-token: write
@@ -141,11 +144,18 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
 
-      - name: Setup Node.js (v20+, npm v10.9.0+)
+      - name: Setup Node.js
         uses: actions/setup-node@60edb5dd545a775178f525247059d6427f4f91a9 # v4.0.2
         with:
-          node-version: 20
+          node-version: '24'
           registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false # never use caching in release builds
+
+      - name: Enforce trusted publishing prerequisites (Node >= 22.14.0, npm >= 11.5.1)
+        run: |
+          npm install -g npm@latest
+          node -e 'const [a,b,c]=process.versions.node.split(".").map(Number); if (a<22||(a===22&&b<14)) { console.error(`Node ${process.versions.node} < 22.14.0 (npm trusted publishing minimum)`); process.exit(1); } console.log(`Node ${process.versions.node} OK (>= 22.14.0)`);'
+          node -e 'const [a,b,c]=process.versions.npm.split(".").map(Number); if (a<11||(a===11&&b<5)||(a===11&&b===5&&c<1)) { console.error(`npm ${process.versions.npm} < 11.5.1 (trusted publishing minimum)`); process.exit(1); } console.log(`npm ${process.versions.npm} OK (>= 11.5.1)`);'
 
       - name: Download all npm binaries
         uses: actions/download-artifact@c850b930e6ba138125429b7e5c93fe707f797fa0 # v4.1.4
