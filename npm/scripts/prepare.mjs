@@ -68,9 +68,10 @@ export function inspectBinary(filePath) {
     return { format: "empty (0 bytes)", size: 0, valid: false, error: "File is empty" };
   }
 
-  const buf = Buffer.alloc(16);
+  // 64 bytes covers PE/Mach-O fields and ELF e_machine at offset 18
+  const buf = Buffer.alloc(64);
   const fd = fs.openSync(filePath, "r");
-  fs.readSync(fd, buf, 0, 16, 0);
+  fs.readSync(fd, buf, 0, 64, 0);
   fs.closeSync(fd);
 
   // PE (Windows): 0x4D 0x5A ('MZ')
