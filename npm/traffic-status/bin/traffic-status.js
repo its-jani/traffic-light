@@ -80,6 +80,17 @@ function main() {
   const binaryPath = getBinaryPath();
   const args = process.argv.slice(2);
 
+  // Backstop for tarballs packed on Windows (no exec bit in the archive):
+  // ensure the native binary is executable before spawning. The platform
+  // package's `bin` field makes npm set this at install time too.
+  if (process.platform !== "win32") {
+    try {
+      fs.chmodSync(binaryPath, 0o755);
+    } catch {
+      // best effort — spawn below reports a clear error if it still can't run
+    }
+  }
+
   const child = spawn(binaryPath, args, {
     stdio: "inherit",
     windowsHide: false,

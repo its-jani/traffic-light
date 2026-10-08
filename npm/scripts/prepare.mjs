@@ -1,22 +1,12 @@
 #!/usr/bin/env node
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.resolve(__dirname, "..", "..");
 const NPM_DIR = path.resolve(ROOT_DIR, "npm");
 const PACKAGES_DIR = path.resolve(NPM_DIR, "packages");
-
-// 1. Read version from Cargo.toml
-const cargoTomlContent = fs.readFileSync(path.join(ROOT_DIR, "Cargo.toml"), "utf-8");
-const versionMatch = cargoTomlContent.match(/version\s*=\s*"([^"]+)"/);
-if (!versionMatch) {
-  console.error("❌ Error: Could not determine version from Cargo.toml");
-  process.exit(1);
-}
-const VERSION = versionMatch[1];
-console.log(`[npm prepare] Synchronizing packages to version: ${VERSION}`);
 
 export const PLATFORMS = [
   {
@@ -61,6 +51,14 @@ export const PLATFORMS = [
   },
 ];
 
+function machArchName(cputype) {
+  if (cputype === 0x01000007) return "x86_64";
+  if (cputype === 0x0100000c) return "arm64";
+  if (cputype === 7) return "i386";
+  if (cputype === 12) return "arm";
+  return `cputype-0x${cputype.toString(16)}`;
+}
+
 export function inspectBinary(filePath) {
   if (!fs.existsSync(filePath)) {
     return { format: "missing", size: 0, valid: false, error: "File not found" };
@@ -77,23 +75,48 @@ export function inspectBinary(filePath) {
 
   // PE (Windows): 0x4D 0x5A ('MZ')
   if (buf[0] === 0x4d && buf[1] === 0x5a) {
-    return { format: "PE32+ (Windows)", size: stat.size, valid: true, type: "win32" };
+    return { format: "PE32+ (Windows)", arch: "x64", size: stat.size, valid: true, type: "win32" };
   }
 
-  // ELF (Linux): 0x7F 'E' 'L' 'F'
+  // ELF (Linux): 0x7F 'E' 'L' 'F'; e_machine at offset 18 (little-endian)
   if (buf[0] === 0x7f && buf[1] === 0x45 && buf[2] === 0x4c && buf[3] === 0x46) {
     const is64 = buf[4] === 2;
-    return { format: `ELF ${is64 ? "64-bit" : "32-bit"} (Linux)`, size: stat.size, valid: true, type: "linux" };
+    const machine = buf.readUInt16LE(18);
+    const arch =
+      machine === 0x3e ? "x86_64" : machine === 0xb7 ? "aarch64" : `machine-0x${machine.toString(16)}`;
+    return {
+      format: `ELF ${is64 ? "64-bit" : "32-bit"} (Linux)`,
+      arch,
+      size: stat.size,
+      valid: true,
+      type: "linux",
+    };
   }
 
   // Mach-O (macOS)
   const magic32le = buf.readUInt32LE(0);
   const magic32be = buf.readUInt32BE(0);
   if (magic32le === 0xfeedfacf || magic32be === 0xfeedfacf) {
-    return { format: "Mach-O 64-bit (macOS)", size: stat.size, valid: true, type: "darwin" };
+    const cputype =
+      magic32le === 0xfeedfacf ? buf.readUInt32LE(4) : buf.readUInt32BE(4);
+    return {
+      format: "Mach-O 64-bit (macOS)",
+      arch: machArchName(cputype),
+      size: stat.size,
+      valid: true,
+      type: "darwin",
+    };
   }
   if (magic32le === 0xfeedface || magic32be === 0xfeedface) {
-    return { format: "Mach-O 32-bit (macOS)", size: stat.size, valid: true, type: "darwin" };
+    const cputype =
+      magic32le === 0xfeedface ? buf.readUInt32LE(4) : buf.readUInt32BE(4);
+    return {
+      format: "Mach-O 32-bit (macOS)",
+      arch: machArchName(cputype),
+      size: stat.size,
+      valid: true,
+      type: "darwin",
+    };
   }
   if (
     magic32be === 0xcafebabe ||
@@ -101,7 +124,7 @@ export function inspectBinary(filePath) {
     magic32be === 0xbebafeca ||
     magic32le === 0xbebafeca
   ) {
-    return { format: "Mach-O Universal/FAT (macOS)", size: stat.size, valid: true, type: "darwin" };
+    return { format: "Mach-O Universal/FAT (macOS)", arch: "universal", size: stat.size, valid: true, type: "darwin" };
   }
 
   return {
@@ -111,11 +134,6 @@ export function inspectBinary(filePath) {
     error: `Invalid magic bytes: ${buf.subarray(0, 4).toString("hex")}`,
   };
 }
-
-// 2. Parse CLI arguments
-const args = process.argv.slice(2);
-const binDirIdx = args.indexOf("--bin-dir");
-const binDir = binDirIdx !== -1 ? path.resolve(process.cwd(), args[binDirIdx + 1]) : null;
 
 // Helper to locate candidate source binary in provided binDir
 function findSourceBinary(baseDir, plat) {
@@ -142,96 +160,129 @@ function findSourceBinary(baseDir, plat) {
   return null;
 }
 
-// 3. Prepare Platform Packages
-fs.mkdirSync(PACKAGES_DIR, { recursive: true });
+function main() {
+  // 1. Start from a clean staging dir — never mix binaries from a previous run
+  fs.rmSync(PACKAGES_DIR, { recursive: true, force: true });
 
-let errors = 0;
-
-for (const plat of PLATFORMS) {
-  const pkgDir = path.join(PACKAGES_DIR, plat.name);
-  fs.mkdirSync(pkgDir, { recursive: true });
-
-  const pkgJson = {
-    name: plat.scopedName,
-    version: VERSION,
-    description: `Native prebuilt binary for traffic-status on ${plat.os[0]} (${plat.cpu[0]})`,
-    os: plat.os,
-    cpu: plat.cpu,
-    files: [plat.bin, "LICENSE", "README.md"],
-    license: "MIT",
-    author: "Traffic Status Team",
-    repository: {
-      type: "git",
-      url: "https://github.com/its-jani/traffic-status.git",
-    },
-  };
-
-  fs.writeFileSync(
-    path.join(pkgDir, "package.json"),
-    JSON.stringify(pkgJson, null, 2) + "\n"
-  );
-
-  // Copy LICENSE and README
-  const licensePath = path.join(ROOT_DIR, "LICENSE");
-  if (fs.existsSync(licensePath)) {
-    fs.copyFileSync(licensePath, path.join(pkgDir, "LICENSE"));
+  // 2. Read version from Cargo.toml
+  const cargoTomlContent = fs.readFileSync(path.join(ROOT_DIR, "Cargo.toml"), "utf-8");
+  const versionMatch = cargoTomlContent.match(/version\s*=\s*"([^"]+)"/);
+  if (!versionMatch) {
+    console.error("❌ Error: Could not determine version from Cargo.toml");
+    process.exit(1);
   }
+  const VERSION = versionMatch[1];
+  console.log(`[npm prepare] Synchronizing packages to version: ${VERSION}`);
 
-  fs.writeFileSync(
-    path.join(pkgDir, "README.md"),
-    `# ${plat.scopedName}\n\nPrebuilt native binary for \`traffic-status\` on ${plat.os[0]} (${plat.cpu[0]}).\n`
-  );
+  // 3. Parse CLI arguments
+  const args = process.argv.slice(2);
+  const binDirIdx = args.indexOf("--bin-dir");
+  const binDir = binDirIdx !== -1 ? path.resolve(process.cwd(), args[binDirIdx + 1]) : null;
 
-  if (binDir) {
-    const srcBin = findSourceBinary(binDir, plat);
-    const destBin = path.join(pkgDir, plat.bin);
+  // 4. Prepare Platform Packages
+  fs.mkdirSync(PACKAGES_DIR, { recursive: true });
 
-    if (!srcBin) {
-      console.error(`❌ [${plat.name}] Binary not found in ${binDir}`);
-      errors++;
-      continue;
-    }
+  let errors = 0;
 
-    const info = inspectBinary(srcBin);
-    if (!info.valid) {
-      console.error(`❌ [${plat.name}] Invalid binary at ${srcBin}: ${info.error} (${info.format})`);
-      errors++;
-      continue;
-    }
+  for (const plat of PLATFORMS) {
+    const pkgDir = path.join(PACKAGES_DIR, plat.name);
+    fs.mkdirSync(pkgDir, { recursive: true });
 
-    if (info.type !== plat.expectedType) {
-      console.error(
-        `❌ [${plat.name}] Format mismatch at ${srcBin}: expected ${plat.expectedType}, got ${info.type} (${info.format})`
-      );
-      errors++;
-      continue;
-    }
+    const pkgJson = {
+      name: plat.scopedName,
+      version: VERSION,
+      description: `Native prebuilt binary for traffic-status on ${plat.os[0]} (${plat.cpu[0]})`,
+      os: plat.os,
+      cpu: plat.cpu,
+      files: [plat.bin, "LICENSE", "README.md"],
+      license: "MIT",
+      author: "Traffic Status Team",
+      repository: {
+        type: "git",
+        url: "https://github.com/its-jani/traffic-status.git",
+      },
+    };
 
-    fs.copyFileSync(srcBin, destBin);
     if (plat.os[0] !== "win32") {
-      fs.chmodSync(destBin, 0o755);
+      // npm sets the executable bit on `bin` targets at install time
+      // (bin-links/fixBin), so the binary runs even when the tarball was
+      // packed on Windows, where files carry no exec bit.
+      pkgJson.bin = { "traffic-status-native": `./${plat.bin}` };
     }
-    console.log(`  ✅ [${plat.name}] Staged ${info.format} (${(info.size / 1024 / 1024).toFixed(2)} MB)`);
+
+    fs.writeFileSync(
+      path.join(pkgDir, "package.json"),
+      JSON.stringify(pkgJson, null, 2) + "\n"
+    );
+
+    // Copy LICENSE and README
+    const licensePath = path.join(ROOT_DIR, "LICENSE");
+    if (fs.existsSync(licensePath)) {
+      fs.copyFileSync(licensePath, path.join(pkgDir, "LICENSE"));
+    }
+
+    fs.writeFileSync(
+      path.join(pkgDir, "README.md"),
+      `# ${plat.scopedName}\n\nPrebuilt native binary for \`traffic-status\` on ${plat.os[0]} (${plat.cpu[0]}).\n`
+    );
+
+    if (binDir) {
+      const srcBin = findSourceBinary(binDir, plat);
+      const destBin = path.join(pkgDir, plat.bin);
+
+      if (!srcBin) {
+        console.error(`❌ [${plat.name}] Binary not found in ${binDir}`);
+        errors++;
+        continue;
+      }
+
+      const info = inspectBinary(srcBin);
+      if (!info.valid) {
+        console.error(`❌ [${plat.name}] Invalid binary at ${srcBin}: ${info.error} (${info.format})`);
+        errors++;
+        continue;
+      }
+
+      if (info.type !== plat.expectedType) {
+        console.error(
+          `❌ [${plat.name}] Format mismatch at ${srcBin}: expected ${plat.expectedType}, got ${info.type} (${info.format})`
+        );
+        errors++;
+        continue;
+      }
+
+      fs.copyFileSync(srcBin, destBin);
+      if (plat.os[0] !== "win32") {
+        fs.chmodSync(destBin, 0o755);
+      }
+      console.log(`  ✅ [${plat.name}] Staged ${info.format}${info.arch ? ` ${info.arch}` : ""} (${(info.size / 1024 / 1024).toFixed(2)} MB)`);
+    }
   }
+
+  // 5. Update main package.json
+  const mainPkgJsonPath = path.join(NPM_DIR, "traffic-status", "package.json");
+  const mainPkgJson = JSON.parse(fs.readFileSync(mainPkgJsonPath, "utf-8"));
+  mainPkgJson.version = VERSION;
+
+  const optionalDeps = {};
+  for (const plat of PLATFORMS) {
+    optionalDeps[plat.scopedName] = VERSION;
+  }
+  mainPkgJson.optionalDependencies = optionalDeps;
+
+  fs.writeFileSync(mainPkgJsonPath, JSON.stringify(mainPkgJson, null, 2) + "\n");
+  console.log(`[npm prepare] Updated ${mainPkgJsonPath}`);
+
+  if (binDir && errors > 0) {
+    console.error(`\n❌ Failed to prepare platform packages: ${errors} error(s) encountered.`);
+    process.exit(1);
+  }
+
+  console.log("✨ Prepare completed successfully.");
 }
 
-// 4. Update main package.json
-const mainPkgJsonPath = path.join(NPM_DIR, "traffic-status", "package.json");
-const mainPkgJson = JSON.parse(fs.readFileSync(mainPkgJsonPath, "utf-8"));
-mainPkgJson.version = VERSION;
-
-const optionalDeps = {};
-for (const plat of PLATFORMS) {
-  optionalDeps[plat.scopedName] = VERSION;
+// Run only when executed directly (verify-packages.mjs imports PLATFORMS/inspectBinary
+// from this file and must not re-run the staging side effects).
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main();
 }
-mainPkgJson.optionalDependencies = optionalDeps;
-
-fs.writeFileSync(mainPkgJsonPath, JSON.stringify(mainPkgJson, null, 2) + "\n");
-console.log(`[npm prepare] Updated ${mainPkgJsonPath}`);
-
-if (binDir && errors > 0) {
-  console.error(`\n❌ Failed to prepare platform packages: ${errors} error(s) encountered.`);
-  process.exit(1);
-}
-
-console.log("✨ Prepare completed successfully.");
