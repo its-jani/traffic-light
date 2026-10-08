@@ -16,4 +16,5 @@ Please do not disclose security issues in public issue trackers or discussion fo
 
 - `traffic-status` binds strictly to the loopback interface (`127.0.0.1`) and does not listen on public network interfaces.
 - The IPC server requires `Content-Type: application/json` and `POST` requests for any state-mutating operations, preventing cross-origin simple requests from web browsers.
+- `POST /shutdown` (stop the daemon) is a state-mutating endpoint governed by the same rules: loopback only, `POST` only, `Content-Type: application/json` required — a web page cannot shut the daemon down.
 - No remote telemetry or tracking is embedded in the application.

@@ -179,6 +179,19 @@ Content-Type: application/json
 {}
 ```
 
+### 4. Shutdown
+```http
+POST /shutdown
+Content-Type: application/json
+
+{}
+```
+Response:
+```json
+{"status":"ok","action":"shutdown"}
+```
+Stops the background daemon. Like every state-mutating endpoint it requires `POST` with `Content-Type: application/json`, so a web page cannot trigger it via a simple request.
+
 ---
 
 ## 🛡️ Security Architecture & Localhost Boundary
