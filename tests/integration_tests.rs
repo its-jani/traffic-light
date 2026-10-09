@@ -369,3 +369,64 @@ async fn test_server_http_security_and_contracts() {
 
     server_handle.abort();
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_server_survives_1000_malformed_requests() {
+    use crossbeam_channel::unbounded;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpStream;
+    use tokio::time::{timeout, Duration};
+    use traffic_status::ipc::start_ipc_server;
+    use traffic_status::types::IpcCommand;
+
+    let (tx, _rx) = unbounded::<IpcCommand>();
+    let port = 18766;
+
+    let server_handle = tokio::spawn(async move {
+        let _ = start_ipc_server(port, tx).await;
+    });
+
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    let payloads: Vec<Vec<u8>> = vec![
+        b"garbage\r\n\r\n".to_vec(),
+        b"GET\r\n\r\n".to_vec(),
+        b"POST /state HTTP/1.1\r\nHost: localhost\r\n\r\n{not-json".to_vec(),
+        b"\x00\x01\x02\xff\xfe\r\n\r\n".to_vec(),
+        b"GET /state HTTP/1.1\r\nHost: evil.example.com\r\n\r\n".to_vec(),
+        b"POST /state HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: not-a-number\r\n\r\n{}".to_vec(),
+        b"OPTIONS * HTTP/1.1\r\nHost: localhost\r\n\r\n".to_vec(),
+        vec![b'A'; 70_000], // larger than the 64 KB read limit
+    ];
+
+    for i in 0..1000 {
+        let payload = payloads[i % payloads.len()].clone();
+        if let Ok(mut stream) = TcpStream::connect(format!("127.0.0.1:{port}")).await {
+            let _ = stream.write_all(&payload).await;
+            let _ = stream.flush().await;
+            let mut buf = Vec::new();
+            let _ = timeout(Duration::from_secs(2), stream.read_to_end(&mut buf)).await;
+        }
+    }
+
+    // The server must still answer correctly after the flood.
+    let mut stream = TcpStream::connect(format!("127.0.0.1:{port}"))
+        .await
+        .expect("server should still accept connections");
+    stream
+        .write_all(b"GET /ping HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n")
+        .await
+        .unwrap();
+    let mut buf = Vec::new();
+    timeout(Duration::from_secs(2), stream.read_to_end(&mut buf))
+        .await
+        .expect("server should respond within timeout")
+        .unwrap();
+    let resp = String::from_utf8_lossy(&buf);
+    assert!(
+        resp.starts_with("HTTP/1.1 200 OK"),
+        "server unhealthy after malformed-request flood: {resp:?}"
+    );
+
+    server_handle.abort();
+}
