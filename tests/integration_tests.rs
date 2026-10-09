@@ -1,6 +1,6 @@
 use std::fs;
 use tempfile::tempdir;
-use traffic_status::cli::{
+use traffic_status::installer::{
     has_our_marker, install_project, safe_remove_file, safe_write_file, uninstall_project,
     MARKER_MD,
 };
@@ -190,7 +190,7 @@ fn test_global_install_and_uninstall_lifecycle() {
     .unwrap();
 
     // 1. Install globally
-    traffic_status::cli::install_global(false, false);
+    traffic_status::installer::install_global(false, false);
 
     let global_claude = temp_home
         .join(".claude")
@@ -222,7 +222,7 @@ fn test_global_install_and_uninstall_lifecycle() {
     assert!(global_opencode_sentinel.exists());
 
     // 2. Uninstall globally
-    traffic_status::cli::uninstall_global(false, false);
+    traffic_status::installer::uninstall_global(false, false);
 
     assert!(
         !global_claude.exists(),
