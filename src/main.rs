@@ -13,6 +13,8 @@ use crate::ipc::start_ipc_server;
 use crate::types::IpcCommand;
 
 fn main() -> eframe::Result<()> {
+    install_panic_hook();
+
     let args: Vec<String> = std::env::args().collect();
     if handle_cli_args(&args) {
         return Ok(());
@@ -66,4 +68,15 @@ fn main() -> eframe::Result<()> {
         native_options,
         Box::new(|cc| Ok(Box::new(TrafficStatusApp::new(cc, rx)))),
     )
+}
+
+/// Log every panic with a stable prefix, then defer to the default hook so the
+/// location/backtrace is still printed. Keeps a crash visible in logs instead
+/// of vanishing when the daemon runs detached.
+fn install_panic_hook() {
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        eprintln!("[Traffic Status] panic: {info}");
+        default_hook(info);
+    }));
 }

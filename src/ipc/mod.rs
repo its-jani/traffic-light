@@ -25,7 +25,7 @@ pub async fn start_ipc_server(
                 let tx_clone = tx.clone();
                 tokio::spawn(async move {
                     if let Err(e) = handle_connection(&mut socket, tx_clone).await {
-                        let _ = e;
+                        eprintln!("[Traffic Status] Connection error: {e}");
                     }
                 });
             }
