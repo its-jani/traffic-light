@@ -1,15 +1,15 @@
+pub mod session;
+
 use crossbeam_channel::Receiver;
 use eframe::egui::{self, Color32, Pos2, Rect, Rounding, Stroke, Vec2};
-use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use crate::types::{IpcCommand, LightState, SessionInfo};
+use crate::app::session::{AppEffect, SessionStore};
+use crate::types::{IpcCommand, LightState};
 
 pub struct TrafficStatusApp {
     rx: Receiver<IpcCommand>,
-    sessions: HashMap<String, SessionInfo>,
-    session_order: Vec<String>,
-    active_session_id: Option<String>,
+    store: SessionStore,
     pulse_phase: f32,
     last_frame_time: Instant,
     last_width: f32,
@@ -17,22 +17,9 @@ pub struct TrafficStatusApp {
 
 impl TrafficStatusApp {
     pub fn new(_cc: &eframe::CreationContext<'_>, rx: Receiver<IpcCommand>) -> Self {
-        let mut sessions = HashMap::new();
-        let default_id = "agent-1".to_string();
-        sessions.insert(
-            default_id.clone(),
-            SessionInfo::new(
-                default_id.clone(),
-                Some("Session #1".to_string()),
-                Some(LightState::Green),
-            ),
-        );
-
         Self {
             rx,
-            sessions,
-            session_order: vec![default_id.clone()],
-            active_session_id: Some(default_id),
+            store: SessionStore::with_default_session(),
             pulse_phase: 0.0,
             last_frame_time: Instant::now(),
             last_width: 88.0,
@@ -41,101 +28,22 @@ impl TrafficStatusApp {
 
     fn process_ipc_events(&mut self, ctx: &egui::Context) {
         while let Ok(cmd) = self.rx.try_recv() {
-            match cmd {
-                IpcCommand::SetState {
-                    session_id,
-                    state,
-                    label,
-                    message,
-                } => {
-                    // Replace placeholder session if this is the first real session connecting
-                    if self.sessions.len() == 1
-                        && self.sessions.contains_key("agent-1")
-                        && session_id != "agent-1"
-                    {
-                        self.sessions.remove("agent-1");
-                        self.session_order.retain(|id| id != "agent-1");
+            for effect in self.store.apply(cmd) {
+                match effect {
+                    AppEffect::Repaint => ctx.request_repaint(),
+                    AppEffect::Unminimize => {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false))
                     }
-
-                    if let Some(session) = self.sessions.get_mut(&session_id) {
-                        session.state = state;
-                        if let Some(lbl) = label {
-                            session.label = lbl;
-                        }
-                        if message.is_some() {
-                            session.message = message;
-                        }
-                        session.last_updated = Instant::now();
-                    } else {
-                        let mut session = SessionInfo::new(session_id.clone(), label, Some(state));
-                        session.message = message;
-                        self.sessions.insert(session_id.clone(), session);
-                        if !self.session_order.contains(&session_id) {
-                            self.session_order.push(session_id.clone());
-                        }
-                    }
-                    self.active_session_id = Some(session_id);
-                }
-                IpcCommand::SessionOn {
-                    session_id,
-                    label,
-                    initial_state,
-                } => {
-                    // Replace placeholder session if this is the first real session connecting
-                    if self.sessions.len() == 1
-                        && self.sessions.contains_key("agent-1")
-                        && session_id != "agent-1"
-                    {
-                        self.sessions.remove("agent-1");
-                        self.session_order.retain(|id| id != "agent-1");
-                    }
-
-                    if let Some(session) = self.sessions.get_mut(&session_id) {
-                        if let Some(lbl) = label {
-                            session.label = lbl;
-                        }
-                        if let Some(st) = initial_state {
-                            session.state = st;
-                        }
-                        session.last_updated = Instant::now();
-                    } else {
-                        let session = SessionInfo::new(session_id.clone(), label, initial_state);
-                        self.sessions.insert(session_id.clone(), session);
-                        if !self.session_order.contains(&session_id) {
-                            self.session_order.push(session_id.clone());
-                        }
-                    }
-                    self.active_session_id = Some(session_id);
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
-                    ctx.request_repaint();
-                }
-                IpcCommand::SessionOff { session_id } => {
-                    self.sessions.remove(&session_id);
-                    self.session_order.retain(|id| id != &session_id);
-                    if self.active_session_id.as_deref() == Some(&session_id) {
-                        self.active_session_id = self.session_order.last().cloned();
-                    }
-                    ctx.request_repaint();
-                }
-                IpcCommand::ClearAll => {
-                    self.sessions.clear();
-                    self.session_order.clear();
-                    self.active_session_id = None;
-                    ctx.request_repaint();
-                }
-                IpcCommand::Shutdown => {
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                    std::process::exit(0);
+                    AppEffect::FocusWindow => ctx.send_viewport_cmd(egui::ViewportCommand::Focus),
+                    AppEffect::CloseWindow => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
+                    AppEffect::ExitProcess => std::process::exit(0),
                 }
             }
         }
     }
 
     fn has_active_animation(&self) -> bool {
-        self.sessions
-            .values()
-            .any(|s| s.state == LightState::Yellow)
+        self.store.has_active_animation()
     }
 }
 
@@ -148,7 +56,7 @@ impl eframe::App for TrafficStatusApp {
         self.process_ipc_events(ctx);
 
         // Dynamically adjust window size if multiple session tabs are present
-        let needed_width = if self.session_order.len() > 1 {
+        let needed_width = if self.store.order().len() > 1 {
             120.0
         } else {
             88.0
@@ -173,9 +81,7 @@ impl eframe::App for TrafficStatusApp {
         }
 
         // Keep active session valid
-        if self.active_session_id.is_none() && !self.session_order.is_empty() {
-            self.active_session_id = self.session_order.first().cloned();
-        }
+        self.store.ensure_active();
 
         let frame = egui::Frame::none()
             .fill(Color32::from_rgba_unmultiplied(14, 16, 22, 235))
@@ -248,23 +154,20 @@ impl eframe::App for TrafficStatusApp {
             ui.add_space(3.0);
 
             // Active session info
-            let active_session = self
-                .active_session_id
-                .as_ref()
-                .and_then(|id| self.sessions.get(id))
-                .cloned();
+            let active_session = self.store.active_session().cloned();
 
-            let has_multiple_sessions = self.session_order.len() > 1;
+            let has_multiple_sessions = self.store.order().len() > 1;
 
             ui.horizontal(|ui| {
                 // Vertical Tabs column (when multiple sessions exist)
                 if has_multiple_sessions {
+                    let order_snapshot = self.store.order().to_vec();
                     ui.vertical(|ui| {
                         ui.add_space(2.0);
-                        for (idx, session_id) in self.session_order.iter().enumerate() {
-                            if let Some(sess) = self.sessions.get(session_id) {
+                        for (idx, session_id) in order_snapshot.iter().enumerate() {
+                            if let Some(sess) = self.store.sessions().get(session_id) {
                                 let is_selected =
-                                    self.active_session_id.as_deref() == Some(session_id);
+                                    self.store.active_id() == Some(session_id.as_str());
                                 let tab_dot_color = match sess.state {
                                     LightState::Red => Color32::from_rgb(255, 60, 60),
                                     LightState::Yellow => Color32::from_rgb(255, 210, 40),
@@ -305,7 +208,7 @@ impl eframe::App for TrafficStatusApp {
                                 );
 
                                 if ui.add(tab_btn).on_hover_text(hover_text).clicked() {
-                                    self.active_session_id = Some(session_id.clone());
+                                    self.store.select(session_id);
                                 }
 
                                 ui.add_space(2.0);
