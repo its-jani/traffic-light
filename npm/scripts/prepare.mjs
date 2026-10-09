@@ -19,36 +19,6 @@ export const PLATFORMS = [
     targetTriple: "x86_64-pc-windows-msvc",
     expectedType: "win32",
   },
-  {
-    name: "traffic-status-linux-x64",
-    scopedName: "@its-jani/traffic-status-linux-x64",
-    os: ["linux"],
-    cpu: ["x64"],
-    bin: "traffic-status",
-    platformId: "linux-x64",
-    targetTriple: "x86_64-unknown-linux-gnu",
-    expectedType: "linux",
-  },
-  {
-    name: "traffic-status-darwin-arm64",
-    scopedName: "@its-jani/traffic-status-darwin-arm64",
-    os: ["darwin"],
-    cpu: ["arm64"],
-    bin: "traffic-status",
-    platformId: "darwin-arm64",
-    targetTriple: "aarch64-apple-darwin",
-    expectedType: "darwin",
-  },
-  {
-    name: "traffic-status-darwin-x64",
-    scopedName: "@its-jani/traffic-status-darwin-x64",
-    os: ["darwin"],
-    cpu: ["x64"],
-    bin: "traffic-status",
-    platformId: "darwin-x64",
-    targetTriple: "x86_64-apple-darwin",
-    expectedType: "darwin",
-  },
 ];
 
 function machArchName(cputype) {

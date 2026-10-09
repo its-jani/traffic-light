@@ -1,6 +1,8 @@
 # 🚦 traffic-status
 
 > Minimalist floating desktop traffic status widget for AI coding agents (**Claude Code**, **OpenCode**).
+>
+> **Windows 10/11 (x64) only.**
 
 Sitting **always-on-top** on your desktop, `traffic-status` provides immediate peripheral awareness of your AI agent's state without switching windows or reading terminal logs.
 
@@ -19,6 +21,8 @@ Sitting **always-on-top** on your desktop, `traffic-status` provides immediate p
 
 ## ⚡ Installation
 
+> **Platform Requirement**: Windows 10/11 (x64).
+
 ### Route A: npm / npx (Requires Node.js 18+)
 
 Install globally with a single command (no Rust toolchain required):
@@ -33,18 +37,13 @@ Or run via `npx` (which copies the standalone binary to your local user director
 npx traffic-status install --global
 ```
 
-### Route B: Standalone Shell Scripts (Node-Free)
+### Route B: Standalone PowerShell Script (Node-Free)
 
 Downloads the prebuilt native binary from GitHub Releases with SHA-256 verification and runs global configuration.
 
 **Windows (PowerShell):**
 ```powershell
 irm https://github.com/its-jani/traffic-status/releases/latest/download/install.ps1 | iex
-```
-
-**macOS / Linux (Bash):**
-```bash
-curl -fsSL https://github.com/its-jani/traffic-status/releases/latest/download/install.sh | sh
 ```
 
 ---
@@ -81,7 +80,7 @@ Once installed, use `/traffic` in your AI coding assistant:
 
 | Scope | Command | Files Created / Managed |
 | --- | --- | --- |
-| **Global Scope** | `traffic-status install --global` | **Claude**: `~/.claude/commands/traffic.md`<br>**OpenCode**: `~/.config/opencode/` & `~/.opencode/` (commands & plugins)<br>**Binary**: `%LOCALAPPDATA%\traffic-status\bin\` (Windows) or `~/.local/share/traffic-status/bin/` (Unix) |
+| **Global Scope** | `traffic-status install --global` | **Claude**: `~/.claude/commands/traffic.md`<br>**OpenCode**: `~/.config/opencode/` & `~/.opencode/` (commands & plugins)<br>**Binary**: `%LOCALAPPDATA%\traffic-status\bin\` |
 | **Project Scope** | `traffic-status install --project [PATH]` | `<project>/.claude/commands/traffic.md`<br>`<project>/.opencode/commands/traffic.md`<br>`<project>/.opencode/plugins/traffic-status.js` |
 
 ### Uninstallation Guarantee
@@ -206,25 +205,8 @@ Stops the background daemon. Like every state-mutating endpoint it requires `POS
 ## 🖥️ Platform Notes
 
 ### Windows
+- **Supported Versions**: Windows 10 and Windows 11 (x64 architecture).
 - **SmartScreen**: Unsigned binaries downloaded directly may trigger Windows SmartScreen. The npm route (`npm i -g traffic-status`) runs via Node launcher and is less prone to binary warnings *(untested across all Windows Defender configurations)*.
-
-### macOS
-- **Gatekeeper / Quarantine**: If downloading the standalone archive manually via browser, you may need to clear the quarantine attribute:
-  ```bash
-  xattr -d com.apple.quarantine ~/.local/share/traffic-status/bin/traffic-status
-  ```
-
-### Linux
-- **Required System Libraries**:
-  Building or running `egui` on Linux requires X11/GL development libraries:
-  ```bash
-  sudo apt-get install libxkbcommon-dev libx11-dev libxcb1-dev libgl1-mesa-dev libssl-dev
-  ```
-- **Wayland Limitations**:
-  The Wayland protocol intentionally restricts client-side window positioning and always-on-top capabilities. If your Wayland compositor ignores always-on-top, run with the X11 backend:
-  ```bash
-  WINIT_UNIX_BACKEND=x11 traffic-status
-  ```
 
 ---
 
@@ -233,7 +215,7 @@ Stops the background daemon. Like every state-mutating endpoint it requires `POS
 | Issue | Cause | Solution |
 | --- | --- | --- |
 | `Port 8765 occupied` | Another process is using port 8765 | Set `TRAFFIC_STATUS_PORT=8766` in your environment or terminate the competing service. |
-| `traffic-status: command not found` | Binary directory not in `PATH` | Run `traffic-status doctor`. Ensure `%LOCALAPPDATA%\traffic-status\bin` (Windows) or `~/.local/share/traffic-status/bin` (Linux/macOS) is in your system `PATH`. |
+| `traffic-status: command not found` | Binary directory not in `PATH` | Run `traffic-status doctor`. Ensure `%LOCALAPPDATA%\traffic-status\bin` is in your system `PATH`. |
 | Hooks not updating light | Daemon not running | Triggering `/traffic on` or `traffic-status on` automatically spawns the background daemon. |
 
 ---
@@ -252,7 +234,7 @@ If you used the earlier development version (`traffic-light`):
 git clone https://github.com/its-jani/traffic-status.git
 cd traffic-status
 cargo build --release
-./target/release/traffic-status install --global
+./target/release/traffic-status.exe install --global
 ```
 
 ---
@@ -260,3 +242,4 @@ cargo build --release
 ## 📜 License
 
 [MIT](LICENSE)
+

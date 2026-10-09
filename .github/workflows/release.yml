@@ -9,34 +9,10 @@ permissions: {}
 
 jobs:
   build-binaries:
-    name: Build (${{ matrix.target }})
-    runs-on: ${{ matrix.os }}
+    name: Build (Windows x64)
+    runs-on: windows-latest
     permissions:
       contents: read
-    strategy:
-      fail-fast: true
-      matrix:
-        include:
-          - target: x86_64-pc-windows-msvc
-            os: windows-latest
-            bin_name: traffic-status.exe
-            archive_ext: zip
-            platform_id: win32-x64
-          - target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
-            bin_name: traffic-status
-            archive_ext: tar.gz
-            platform_id: linux-x64
-          - target: x86_64-apple-darwin
-            os: macos-latest
-            bin_name: traffic-status
-            archive_ext: tar.gz
-            platform_id: darwin-x64
-          - target: aarch64-apple-darwin
-            os: macos-latest
-            bin_name: traffic-status
-            archive_ext: tar.gz
-            platform_id: darwin-arm64
 
     steps:
       - name: Checkout repository
@@ -46,59 +22,40 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: stable
-          targets: ${{ matrix.target }}
-
-      - name: Install Linux dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libxkbcommon-dev \
-            libx11-dev \
-            libxcb1-dev \
-            libxcb-render0-dev \
-            libxcb-shape0-dev \
-            libxcb-xfixes0-dev \
-            libgl1-mesa-dev \
-            libssl-dev \
-            pkg-config
+          targets: x86_64-pc-windows-msvc
 
       - name: Build release binary
-        run: cargo build --release --target ${{ matrix.target }}
+        run: cargo build --release --target x86_64-pc-windows-msvc
 
       - name: Package release archive
         shell: bash
         run: |
           mkdir -p dist
-          BIN_PATH="target/${{ matrix.target }}/release/${{ matrix.bin_name }}"
-          ARCHIVE_NAME="traffic-status-${{ matrix.target }}.${{ matrix.archive_ext }}"
+          BIN_PATH="target/x86_64-pc-windows-msvc/release/traffic-status.exe"
+          ARCHIVE_NAME="traffic-status-x86_64-pc-windows-msvc.zip"
 
-          if [ "${{ matrix.archive_ext }}" = "zip" ]; then
-            7z a "dist/${ARCHIVE_NAME}" "./${BIN_PATH}" ./LICENSE ./README.md
-          else
-            tar -czf "dist/${ARCHIVE_NAME}" -C "target/${{ matrix.target }}/release" "${{ matrix.bin_name }}" -C ../../../ LICENSE README.md
-          fi
+          7z a "dist/${ARCHIVE_NAME}" "./${BIN_PATH}" ./LICENSE ./README.md
 
           # Stage raw binary for npm packaging
-          mkdir -p npm-bins/${{ matrix.platform_id }}
-          cp "${BIN_PATH}" "npm-bins/${{ matrix.platform_id }}/${{ matrix.bin_name }}"
+          mkdir -p npm-bins/win32-x64
+          cp "${BIN_PATH}" "npm-bins/win32-x64/traffic-status.exe"
 
       - name: Upload archive artifact
         uses: actions/upload-artifact@5d5d22a31266ced268874388b861e4b58bb5c2f3 # v4.3.1
         with:
-          name: archive-${{ matrix.target }}
+          name: archive-x86_64-pc-windows-msvc
           path: dist/*
 
       - name: Upload raw binary for npm
         uses: actions/upload-artifact@5d5d22a31266ced268874388b861e4b58bb5c2f3 # v4.3.1
         with:
-          name: npm-bin-${{ matrix.platform_id }}
+          name: npm-bin-win32-x64
           path: npm-bins/*
 
   create-release:
     name: GitHub Release
     needs: build-binaries
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     permissions:
       contents: write
 
@@ -106,7 +63,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
 
-      - name: Download all release archives
+      - name: Download release archive
         uses: actions/download-artifact@c850b930e6ba138125429b7e5c93fe707f797fa0 # v4.1.4
         with:
           pattern: archive-*
@@ -114,12 +71,11 @@ jobs:
           merge-multiple: true
 
       - name: Generate SHA256SUMS and attach installers
-        shell: bash
+        shell: pwsh
         run: |
           cd release-assets
-          sha256sum * > SHA256SUMS
-          cp ../install.ps1 .
-          cp ../install.sh .
+          Get-FileHash -Algorithm SHA256 (Get-ChildItem -File) | ForEach-Object { "$($_.Hash.ToLower())  $($_.Name)" } | Set-Content -Encoding ascii SHA256SUMS
+          Copy-Item ../install.ps1 .
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@c062e08bd532815e2082a85e87e3ef299c7d8760 # v2.0.4
@@ -132,7 +88,7 @@ jobs:
     name: npm Trusted Publishing
     needs: [build-binaries, create-release]
     if: vars.NPM_PUBLISH == 'true'
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     # Trusted publisher config on npmjs.com must point at this exact workflow
     # filename (release.yml). Per npm docs, trusted publishing requires
     # npm CLI >= 11.5.1 and Node >= 22.14.0.
@@ -154,10 +110,10 @@ jobs:
       - name: Enforce trusted publishing prerequisites (Node >= 22.14.0, npm >= 11.5.1)
         run: |
           npm install -g npm@latest
-          node -e 'const [a,b,c]=process.versions.node.split(".").map(Number); if (a<22||(a===22&&b<14)) { console.error(`Node ${process.versions.node} < 22.14.0 (npm trusted publishing minimum)`); process.exit(1); } console.log(`Node ${process.versions.node} OK (>= 22.14.0)`);'
-          node -e 'const [a,b,c]=process.versions.npm.split(".").map(Number); if (a<11||(a===11&&b<5)||(a===11&&b===5&&c<1)) { console.error(`npm ${process.versions.npm} < 11.5.1 (trusted publishing minimum)`); process.exit(1); } console.log(`npm ${process.versions.npm} OK (>= 11.5.1)`);'
+          node -e "const [a,b,c]=process.versions.node.split('.').map(Number); if (a<22||(a===22&&b<14)) { console.error(`Node ${process.versions.node} < 22.14.0 (npm trusted publishing minimum)`); process.exit(1); } console.log(`Node ${process.versions.node} OK (>= 22.14.0)`);"
+          node -e "const [a,b,c]=process.versions.npm.split('.').map(Number); if (a<11||(a===11&&b<5)||(a===11&&b===5&&c<1)) { console.error(`npm ${process.versions.npm} < 11.5.1 (trusted publishing minimum)`); process.exit(1); } console.log(`npm ${process.versions.npm} OK (>= 11.5.1)`);"
 
-      - name: Download all npm binaries
+      - name: Download npm binary
         uses: actions/download-artifact@c850b930e6ba138125429b7e5c93fe707f797fa0 # v4.1.4
         with:
           pattern: npm-bin-*
@@ -171,8 +127,9 @@ jobs:
         run: node npm/scripts/verify-packages.mjs
 
       - name: Publish to npm with provenance
+        shell: bash
         run: |
-          # 1. Publish platform packages first
+          # 1. Publish platform package
           for pkg in npm/packages/traffic-status-*; do
             PKG_NAME=$(node -e "console.log(JSON.parse(require('fs').readFileSync('$pkg/package.json')).name)")
             PKG_VER=$(node -e "console.log(JSON.parse(require('fs').readFileSync('$pkg/package.json')).version)")
@@ -193,3 +150,4 @@ jobs:
             echo "Publishing $MAIN_NAME@$MAIN_VER with provenance..."
             npm publish npm/traffic-status --access public --provenance
           fi
+

@@ -3,6 +3,12 @@
   "version": "0.1.0",
   "description": "Minimalist floating desktop traffic status indicator for AI coding agents",
   "type": "module",
+  "os": [
+    "win32"
+  ],
+  "cpu": [
+    "x64"
+  ],
   "bin": {
     "traffic-status": "./bin/traffic-status.js"
   },
@@ -34,9 +40,6 @@
     "desktop-widget"
   ],
   "optionalDependencies": {
-    "@its-jani/traffic-status-win32-x64": "0.1.0",
-    "@its-jani/traffic-status-linux-x64": "0.1.0",
-    "@its-jani/traffic-status-darwin-arm64": "0.1.0",
-    "@its-jani/traffic-status-darwin-x64": "0.1.0"
+    "@its-jani/traffic-status-win32-x64": "0.1.0"
   }
 }

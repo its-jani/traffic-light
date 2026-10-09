@@ -136,5 +136,6 @@ if (errors > 0) {
   console.error(`❌ Verification failed with ${errors} error(s).`);
   process.exit(1);
 } else {
-  console.log("✨ All 5 packages verified successfully!");
+  console.log(`✨ All ${PLATFORMS.length + 1} packages verified successfully!`);
 }
+

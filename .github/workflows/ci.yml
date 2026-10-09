@@ -11,12 +11,8 @@ permissions:
 
 jobs:
   test:
-    name: Test (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+    name: Test (Windows x64)
+    runs-on: windows-latest
 
     steps:
       - name: Checkout repository
@@ -28,21 +24,6 @@ jobs:
           toolchain: stable
           components: rustfmt, clippy
 
-      - name: Install Linux system dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libxkbcommon-dev \
-            libx11-dev \
-            libxcb1-dev \
-            libxcb-render0-dev \
-            libxcb-shape0-dev \
-            libxcb-xfixes0-dev \
-            libgl1-mesa-dev \
-            libssl-dev \
-            pkg-config
-
       - name: Format check
         run: cargo fmt --check
 
@@ -53,8 +34,9 @@ jobs:
         run: cargo test --verbose
 
       - name: Test installer lifecycle CLI
-        shell: bash
+        shell: pwsh
         run: |
           cargo run -- install --global
           cargo run -- doctor
           cargo run -- uninstall --global
+
