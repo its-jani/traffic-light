@@ -64,7 +64,7 @@ jobs:
         uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
 
       - name: Download release archive
-        uses: actions/download-artifact@c850b930e6ba138125429b7e5c93fe707f797fa0 # v4.1.4
+        uses: actions/download-artifact@c850b930e6ba138125429b7e5c93fc707a7f8427 # v4.1.4
         with:
           pattern: archive-*
           path: release-assets
@@ -78,7 +78,7 @@ jobs:
           Copy-Item ../install.ps1 .
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@c062e08bd532815e2082a85e87e3ef299c7d8760 # v2.0.4
+        uses: softprops/action-gh-release@9d7c94cfd0a1f3ed45544c887983e9fa900f0564 # v2.0.4
         with:
           files: |
             release-assets/*
@@ -101,7 +101,7 @@ jobs:
         uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
 
       - name: Setup Node.js
-        uses: actions/setup-node@60edb5dd545a775178f525247059d6427f4f91a9 # v4.0.2
+        uses: actions/setup-node@60edb5dd545a775178f52524783378180af0d1f8 # v4.0.2
         with:
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'
@@ -114,7 +114,7 @@ jobs:
           node -e "const [a,b,c]=process.versions.npm.split('.').map(Number); if (a<11||(a===11&&b<5)||(a===11&&b===5&&c<1)) { console.error(`npm ${process.versions.npm} < 11.5.1 (trusted publishing minimum)`); process.exit(1); } console.log(`npm ${process.versions.npm} OK (>= 11.5.1)`);"
 
       - name: Download npm binary
-        uses: actions/download-artifact@c850b930e6ba138125429b7e5c93fe707f797fa0 # v4.1.4
+        uses: actions/download-artifact@c850b930e6ba138125429b7e5c93fc707a7f8427 # v4.1.4
         with:
           pattern: npm-bin-*
           path: npm-dist-bins
